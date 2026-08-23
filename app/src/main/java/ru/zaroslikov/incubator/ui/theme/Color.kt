@@ -2,7 +2,7 @@ package ru.zaroslikov.incubator.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val primaryLight = Color(0xFF4C662B)
+val primaryLight = Color(0xFF3F7D5C)
 val onPrimaryLight = Color(0xFFFFFFFF)
 val primaryContainerLight = Color(0xFFCDEDA3)
 val onPrimaryContainerLight = Color(0xFF102000)
@@ -18,14 +18,14 @@ val errorLight = Color(0xFFBA1A1A)
 val onErrorLight = Color(0xFFFFFFFF)
 val errorContainerLight = Color(0xFFFFDAD6)
 val onErrorContainerLight = Color(0xFF410002)
-val backgroundLight = Color(0xFFF9FAEF)
-val onBackgroundLight = Color(0xFF1A1C16)
-val surfaceLight = Color(0xFFF9FAEF)
-val onSurfaceLight = Color(0xFF1A1C16)
+val backgroundLight = Color(0xFFFAF8F3)
+val onBackgroundLight = Color(0xFF2B2620)
+val surfaceLight = Color(0xFFFAF8F3)
+val onSurfaceLight = Color(0xFF2B2620)
 val surfaceVariantLight = Color(0xFFE1E4D5)
-val onSurfaceVariantLight = Color(0xFF44483D)
-val outlineLight = Color(0xFF75796C)
-val outlineVariantLight = Color(0xFFC5C8BA)
+val onSurfaceVariantLight = Color(0xFF8A8072)
+val outlineLight = Color(0xFFECE5D8)
+val outlineVariantLight = Color(0xFFECE5D8)
 val scrimLight = Color(0xFF000000)
 val inverseSurfaceLight = Color(0xFF2F312A)
 val inverseOnSurfaceLight = Color(0xFFF1F2E6)
@@ -33,8 +33,8 @@ val inversePrimaryLight = Color(0xFFB1D18A)
 val surfaceDimLight = Color(0xFFDADBD0)
 val surfaceBrightLight = Color(0xFFF9FAEF)
 val surfaceContainerLowestLight = Color(0xFFFFFFFF)
-val surfaceContainerLowLight = Color(0xFFF3F4E9)
-val surfaceContainerLight = Color(0xFFEEEFE3)
+val surfaceContainerLowLight = Color(0xFFFFFFFF)
+val surfaceContainerLight = Color(0xFFFFFFFF)
 val surfaceContainerHighLight = Color(0xFFE8E9DE)
 val surfaceContainerHighestLight = Color(0xFFE2E3D8)
 
@@ -217,3 +217,119 @@ val surfaceContainerLowDarkHighContrast = Color(0xFF1A1C16)
 val surfaceContainerDarkHighContrast = Color(0xFF1E201A)
 val surfaceContainerHighDarkHighContrast = Color(0xFF282B24)
 val surfaceContainerHighestDarkHighContrast = Color(0xFF33362E)
+
+/**
+ * Цвета макета, которым нет слота в Material 3.
+ *
+ * В файле Figma переменных-токенов нет — только сырые hex, поэтому значения снимаются
+ * из макета напрямую. Держим их здесь, а не магическими числами в вёрстке.
+ * Значения только для светлой темы: тёмного макета пока не существует.
+ */
+object DesignPalette {
+    val ProgressTrack = Color(0xFFF2EDE3)
+    val Accent = Color(0xFF3F7D5C)
+    val DateEmphasis = Color(0xFF4A3410)
+    val CardBorder = Color(0xFFECE5D8)
+
+    /** Звёздочка обязательного поля в форме инкубатора. */
+    val Required = Color(0xFFC25B45)
+
+    /** Фон круглой кнопки закрытия в шторке. */
+    val SheetIconButton = Color(0xFFF2EDE3)
+
+    /** Выбранная плитка вида птицы в форме закладки (узел 12:4783). */
+    val SpeciesTileSelected = Color(0xFFFBF1DA)
+
+    /** Плитка-итог под полем стоимости: #F2EDE3 60 %. */
+    val PriceSummarySurface = Color(0x99F2EDE3)
+
+    /** Фон круглого чипа вида птицы. */
+    val ChipChicken = Color(0xFFFBF1DA)
+    val ChipQuail = Color(0xFFEFEAE0)
+    val ChipGoose = Color(0xFFEAF0F6)
+    val ChipTurkey = Color(0xFFF8E6E1)
+    val ChipDuck = Color(0xFFEFEAE0)
+
+    /** Зелёная шапка экрана инкубатора и текст на ней. */
+    val HeaderSurface = Accent
+    val HeaderTitle = Color(0xFFFFFFFF)
+    val HeaderMuted = Color(0xB3FFFFFF) // белый 70 %
+    val HeaderIcon = Color(0xCCFFFFFF) // белый 80 %
+
+    /** Дорожка сегментированного переключателя вкладок; выбранная вкладка — белая. */
+    val TabTrack = Color(0xFFF2EDE3)
+
+    /** Статус-чип закладки: «Инкубация» — зелёный, «Завершено» — нейтральный. */
+    val StatusActiveSurface = Color(0xFFE6F0EA)
+    val StatusActiveText = Accent
+    val StatusDoneSurface = Color(0xFFF2EDE3)
+    val StatusDoneText = Color(0xFF8A8072)
+
+    /** Пунктирная кнопка «Добавить …» под списком. */
+    val DashedSurface = Color(0x80E6F0EA) // #E6F0EA 50 %
+    val DashedBorder = Color(0x663F7D5C) // #3F7D5C 40 %
+
+    /** Подсказка-вывод внизу вкладки «Статистика». */
+    val InsightSurface = Color(0x99E6F0EA) // #E6F0EA 60 %
+
+    /** Расход в «Финансах»; доход — [Accent]. */
+    val Expense = Color(0xFFC25B45)
+    val ExpenseSurface = Color(0xFFF8E6E1)
+    val IncomeSurface = Color(0xFFE6F0EA)
+
+    /**
+     * Столбцы диаграммы «Яйца по видам птицы». В макете цвет задан позицией
+     * (виды отсортированы по убыванию), а не самим видом птицы.
+     */
+    val ChartBars = listOf(
+        Color(0xFF8A7247),
+        Color(0xFFB5811F),
+        Color(0xFF3F7D5C),
+        Color(0xFF6E8CA8),
+        Color(0xFFA8705F),
+    )
+
+    // --- Шторка закладки (узел 14:4893) ---
+
+    /** Выделенная плитка «Осталось сейчас»: заливка #E6F0EA 60 % и зелёная рамка 25 %. */
+    val HighlightBorder = Color(0x403F7D5C)
+
+    /** Плитка замера «Температура» / «Влажность»: #F2EDE3 60 %. */
+    val MeasureTile = Color(0x99F2EDE3)
+
+    /** Блок ввода замера: #F2EDE3 30 %. */
+    val MeasureForm = Color(0x4DF2EDE3)
+
+    /** Строка записанного замера: #F2EDE3 40 %. */
+    val MeasureRow = Color(0x66F2EDE3)
+
+    /** Плашка режима на завтра и дорожка шкалы отклонения. */
+    val PillSurface = Color(0xFFF2EDE3)
+
+    // --- Аналитика за день (узел 16:6632) ---
+
+    /**
+     * Линия температуры. В макете она зелёная, как и всё остальное в приложении, но
+     * зелёный тут уже занят акцентом и вердиктом «в норме»; красный — цвет самой
+     * величины, и рядом с синей влажностью две линии уже не перепутать.
+     */
+    val ChartTemp = Color(0xFFC25B45)
+
+    /** Линия влажности — вторая величина на том же графике, со своей осью справа. */
+    val ChartDamp = Color(0xFF3D7EA6)
+
+    /** Вертикальная черта переворота. */
+    val ChartTurn = Color(0xFFB5811F)
+
+    /** Черта заметки — та же черта, что у переворота, но пунктиром и приглушённая. */
+    val ChartNote = Color(0xFF8A8072)
+
+    /** Закрашенное окно проветривания: [Accent] 14 %. */
+    val ChartAiring = Color(0x243F7D5C)
+
+    /** Сетка графика. */
+    val ChartGrid = Color(0xFFF2EDE3)
+
+    /** Подписи осей и времени под графиком. */
+    val ChartAxisLabel = Color(0xFF8A8072)
+}

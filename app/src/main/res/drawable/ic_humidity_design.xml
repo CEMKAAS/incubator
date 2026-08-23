@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Значка капли в макете нет — нарисован в том же стиле, что и экспортированные
+  из Figma ic_*_design: только обводка, 16dp, скруглённые стыки. Цвет здесь запасной,
+  Icon(painter, tint = …) перекрашивает.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="16"
+    android:viewportHeight="16">
+    <path
+        android:pathData="M8 1.79l3.77 3.77a5.33 5.33 0 1 1 -7.54 0z"
+        android:strokeWidth="1.2"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

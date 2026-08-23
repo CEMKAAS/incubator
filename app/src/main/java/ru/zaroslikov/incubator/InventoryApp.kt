@@ -1,7 +1,5 @@
 package ru.zaroslikov.incubator
 
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
@@ -27,7 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
-import ru.zaroslikov.incubator.ui.Banner
 import ru.zaroslikov.incubator.ui.navigation.InventoryNavHost
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -43,14 +40,7 @@ fun InventoryApp(
     navController: NavHostController = rememberNavController(),
     firstLaunch: Boolean
 ) {
-    Scaffold(bottomBar = {
-        Banner(
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight()
-        )
-    }
-    ) { innerPadding ->
+    Scaffold { innerPadding ->
         InventoryNavHost(
             navController = navController,
             firstLaunch = firstLaunch,
@@ -92,40 +82,6 @@ fun TopAppBarStart(
                         contentDescription = "Настройка"
                     )
                 }
-            }
-        }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun TopAppBarStart2(
-    title: String,
-    infoBottomSheet: () -> Unit,
-    archiveButton: () -> Unit,
-    boolean: Boolean,
-    scrollBehavior: TopAppBarScrollBehavior? = null,
-) {
-    TopAppBar(
-        colors = TopAppBarDefaults.largeTopAppBarColors(
-            titleContentColor = MaterialTheme.colorScheme.primary,
-        ),
-        title = {
-            Text(text = title)
-        },
-        scrollBehavior = scrollBehavior,
-        actions = {
-            IconButton(onClick = archiveButton) {
-                Icon(
-                    painter = painterResource(id = if (boolean) R.drawable.baseline_unarchive_24 else R.drawable.baseline_archive_24),
-                    contentDescription = "Localized description",
-                )
-            }
-            IconButton(onClick = infoBottomSheet) {
-                Icon(
-                    imageVector = Icons.Filled.Info,
-                    contentDescription = "Информация"
-                )
             }
         }
     )

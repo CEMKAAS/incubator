@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Экспорт из Figma (узел ArrowUp 11:3476). Path перенесён дословно. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="14dp"
+    android:height="14dp"
+    android:viewportWidth="14"
+    android:viewportHeight="14">
+    <path
+        android:pathData="M7 11.0833V2.91667M10.5 6.41667L7 2.91667L3.5 6.41667"
+        android:strokeWidth="1.05"
+        android:strokeColor="#3F7D5C"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

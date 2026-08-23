@@ -11,18 +11,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 
 import io.appmetrica.analytics.AppMetrica
-import ru.zaroslikov.incubator.ui.add.AddIncubator
-import ru.zaroslikov.incubator.ui.add.AddIncubatorDestination
-import ru.zaroslikov.incubator.ui.arhiv.IncubatorArhivDestination
-import ru.zaroslikov.incubator.ui.arhiv.IncubatorArhivScreen
-import ru.zaroslikov.incubator.ui.incubator.IncubatorEditDayScreen
-import ru.zaroslikov.incubator.ui.incubator.IncubatorEditDayScreenDestination
-import ru.zaroslikov.incubator.ui.incubator.IncubatorOvoscopDestination
-import ru.zaroslikov.incubator.ui.incubator.IncubatorOvoscopScreen
-import ru.zaroslikov.incubator.ui.incubator.IncubatorProjectEditDestination
-import ru.zaroslikov.incubator.ui.incubator.IncubatorProjectEditScreen
+import ru.zaroslikov.incubator.ui.batch.BatchArchiveDestination
+import ru.zaroslikov.incubator.ui.incubator.IncubatorDestination
 import ru.zaroslikov.incubator.ui.incubator.IncubatorScreen
-import ru.zaroslikov.incubator.ui.incubator.IncubatorScreenDestination
+import ru.zaroslikov.incubator.ui.batch.BatchArchiveScreen
+import ru.zaroslikov.incubator.ui.batch.BatchDayScreen
+import ru.zaroslikov.incubator.ui.batch.BatchDayDestination
+import ru.zaroslikov.incubator.ui.batch.CandlingDestination
+import ru.zaroslikov.incubator.ui.batch.CandlingScreen
+import ru.zaroslikov.incubator.ui.batch.BatchScreen
+import ru.zaroslikov.incubator.ui.batch.BatchDestination
 import ru.zaroslikov.incubator.ui.start.StartDestination
 import ru.zaroslikov.incubator.ui.start.StartScreen
 
@@ -35,57 +33,60 @@ fun InventoryNavHost(
 ) {
     NavHost(
         navController = navController,
-        startDestination = if (firstLaunch) AddIncubatorDestination.route else StartDestination.route
+        startDestination = StartDestination.route
     ) {
 
+        // Форма инкубатора — нижняя шторка, а не пункт назначения: она открывается
+        // поверх списка (создание) или поверх самого инкубатора (правка).
         composable(route = StartDestination.route) {
             StartScreen(
-                navigateToItemAdd = {
-                    AppMetrica.reportEvent("Переход в Добавление")
-                    navController.navigate(AddIncubatorDestination.route)
-                },
-                navigateToItemIncubator = {
+                navigateToIncubator = {
                     AppMetrica.reportEvent("Переход в Инкубатор")
-                    navController.navigate("${IncubatorScreenDestination.route}/${it}")
+                    navController.navigate("${IncubatorDestination.route}/${it}")
                 },
-                navigateToItemIncubatorArh = {
-                    AppMetrica.reportEvent("Переход в Архив")
-                    navController.navigate("${IncubatorArhivDestination.route}/${it}")
-                },
+                openAddOnStart = firstLaunch,
                 contentPadding = contentPadding
             )
 
         }
 
-        composable(route = AddIncubatorDestination.route) {
-            AddIncubator(
+        composable(
+            route = IncubatorDestination.routeWithArgs,
+            arguments = listOf(navArgument(IncubatorDestination.itemIdArg) {
+                type = NavType.LongType
+            })
+        ) {
+            IncubatorScreen(
                 navigateBack = { navController.popBackStack() },
-                navigateContinue = { navController.navigate(StartDestination.route) },
-                firstLaunch = firstLaunch,
+                // Само открытие закладки — шторка внутри экрана; сюда ведёт только
+                // ссылка «Расписание по дням» из неё.
+                navigateToBatch = {
+                    AppMetrica.reportEvent("Переход в расписание")
+                    navController.navigate("${BatchDestination.route}/${it}")
+                },
+                navigateToArchivedBatch = {
+                    AppMetrica.reportEvent("Переход в Архив")
+                    navController.navigate("${BatchArchiveDestination.route}/${it}")
+                },
                 contentPadding = contentPadding
             )
         }
 
         composable(
-            route = IncubatorScreenDestination.routeWithArgs,
-            arguments = listOf(navArgument(IncubatorScreenDestination.itemIdArg) {
-                type = NavType.IntType
+            route = BatchDestination.routeWithArgs,
+            arguments = listOf(navArgument(BatchDestination.itemIdArg) {
+                type = NavType.LongType
             })
         ) {
-            IncubatorScreen(navigateBack = { navController.popBackStack() }, navigateDayEdit = {
+            BatchScreen(navigateBack = { navController.popBackStack() }, navigateDayEdit = {
                 AppMetrica.reportEvent("Переход в редактор дня")
                 navController.navigate(
-                    "${IncubatorEditDayScreenDestination.route}/${it.first}/${it.second}"
-                )
-            }, navigateProjectEdit = {
-                AppMetrica.reportEvent("Переход в редактор инкубатора")
-                navController.navigate(
-                    "${IncubatorProjectEditDestination.route}/${it}"
+                    "${BatchDayDestination.route}/${it.first}/${it.second}"
                 )
             }, navigateOvos = {
                 AppMetrica.reportEvent("Переход в Овоскопирование", it.second)
                 navController.navigate(
-                    "${IncubatorOvoscopDestination.route}/${it.first}/${it.second}"
+                    "${CandlingDestination.route}/${it.first}/${it.second}"
                 )
             }, navigateStart = {
                 navController.navigate(StartDestination.route)
@@ -95,52 +96,40 @@ fun InventoryNavHost(
         }
 
         composable(
-            route = IncubatorOvoscopDestination.routeWithArgs,
-            arguments = listOf(navArgument(IncubatorOvoscopDestination.itemIdArg) {
+            route = CandlingDestination.routeWithArgs,
+            arguments = listOf(navArgument(CandlingDestination.itemIdArg) {
                 type = NavType.IntType
-            }, navArgument(IncubatorOvoscopDestination.itemIdArgTwo) {
+            }, navArgument(CandlingDestination.itemIdArgTwo) {
                 type = NavType.StringType
             })
         ) {
-            IncubatorOvoscopScreen(navigateBack = {
+            CandlingScreen(navigateBack = {
                 navController.popBackStack()
             }, onNavigateUp = { navController.navigateUp() },
                 contentPadding = contentPadding)
         }
 
         composable(
-            route = IncubatorProjectEditDestination.routeWithArgs,
-            arguments = listOf(navArgument(IncubatorProjectEditDestination.itemIdArg) {
+            route = BatchDayDestination.routeWithArgs,
+            arguments = listOf(navArgument(BatchDayDestination.itemIdArg) {
+                type = NavType.LongType
+            }, navArgument(BatchDayDestination.itemIdArgTwo) {
                 type = NavType.IntType
             })
         ) {
-            IncubatorProjectEditScreen(navigateBack = { navController.popBackStack() },
-                onNavigateUp = { navController.navigateUp() },
-                navigateStart = { navController.navigate(StartDestination.route) },
-                contentPadding = contentPadding)
-        }
-
-        composable(
-            route = IncubatorEditDayScreenDestination.routeWithArgs,
-            arguments = listOf(navArgument(IncubatorEditDayScreenDestination.itemIdArg) {
-                type = NavType.IntType
-            }, navArgument(IncubatorEditDayScreenDestination.itemIdArgTwo) {
-                type = NavType.IntType
-            })
-        ) {
-            IncubatorEditDayScreen(navigateBack = {
+            BatchDayScreen(navigateBack = {
                 navController.popBackStack()
             }, onNavigateUp = { navController.navigateUp() },
                 contentPadding = contentPadding)
         }
 
-        composable(route = IncubatorArhivDestination.routeWithArgs,
+        composable(route = BatchArchiveDestination.routeWithArgs,
             arguments = listOf(
-                navArgument(IncubatorProjectEditDestination.itemIdArg) {
-                    type = NavType.IntType
+                navArgument(BatchArchiveDestination.itemIdArg) {
+                    type = NavType.LongType
                 }
             )) {
-            IncubatorArhivScreen(
+            BatchArchiveScreen(
                 navigateBack = { navController.popBackStack() },
                 navigateStart = { navController.navigateUp() },
                 contentPadding = contentPadding

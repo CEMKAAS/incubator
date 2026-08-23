@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Экспорт из Figma (узел CalendarIcon 5:1044). Path перенесён дословно. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="14dp"
+    android:height="14dp"
+    android:viewportWidth="14"
+    android:viewportHeight="14">
+    <path
+        android:pathData="M10.7917 2.625H3.20833C2.40292 2.625 1.75 3.27792 1.75 4.08333V10.5C1.75 11.3054 2.40292 11.9583 3.20833 11.9583H10.7917C11.5971 11.9583 12.25 11.3054 12.25 10.5V4.08333C12.25 3.27792 11.5971 2.625 10.7917 2.625Z"
+        android:strokeWidth="1.05"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M1.75 5.25H12.25M4.66667 1.75V3.5M9.33333 1.75V3.5"
+        android:strokeWidth="1.05"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

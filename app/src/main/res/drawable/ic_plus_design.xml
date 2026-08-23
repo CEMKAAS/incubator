@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Экспорт из Figma (узел PlusIcon 5:1111). Path перенесён дословно. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="20dp"
+    android:height="20dp"
+    android:viewportWidth="20"
+    android:viewportHeight="20">
+    <path
+        android:pathData="M10 4.16667V15.8333M4.16667 10H15.8333"
+        android:strokeWidth="1.5"
+        android:strokeColor="#3F7D5C"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

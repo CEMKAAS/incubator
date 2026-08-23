@@ -10,16 +10,6 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.app.ActivityCompat
-import androidx.lifecycle.ProcessLifecycleOwner
-import com.yandex.mobile.ads.appopenad.AppOpenAd
-import com.yandex.mobile.ads.appopenad.AppOpenAdEventListener
-import com.yandex.mobile.ads.appopenad.AppOpenAdLoadListener
-import com.yandex.mobile.ads.appopenad.AppOpenAdLoader
-import com.yandex.mobile.ads.common.AdError
-import com.yandex.mobile.ads.common.AdRequestConfiguration
-import com.yandex.mobile.ads.common.AdRequestError
-import com.yandex.mobile.ads.common.ImpressionData
-import com.yandex.mobile.ads.common.MobileAds
 import ru.zaroslikov.incubator.ui.theme.IncubatorTheme
 
 
@@ -30,9 +20,6 @@ class MainActivity : ComponentActivity() {
         const val REQUEST_CODE_NOTIFICATION_PERMISSIONS = 228
     }
 
-    private var appOpenAd: AppOpenAd? = null
-    private var isAdShownOnColdStart = false
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -40,14 +27,6 @@ class MainActivity : ComponentActivity() {
         if (firstLaunch) if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) getNotificationPermissions()
         setContent {
             IncubatorTheme {
-
-                MobileAds.initialize(this) {
-                    loadAppOpenAd()
-                    val processLifecycleObserver =
-                        DefaultProcessLifecycleObserver(onProcessCaneForeground = ::showAppOpenAd)
-                    ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
-                }
-
                 InventoryApp(firstLaunch = firstLaunch)
             }
         }
@@ -80,7 +59,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
-        permissions: Array<out String>,
+        permissions: Array<String>,
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -104,56 +83,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-
-    //Реклама при запуске приложения
-    private fun showAppOpenAd() {
-        val appOpenAdEventListener = AdEventListener()
-        appOpenAd?.setAdEventListener(appOpenAdEventListener)
-        appOpenAd?.show(this@MainActivity)
-    }
-
-    private inner class AdEventListener : AppOpenAdEventListener {
-        override fun onAdShown() {}
-        override fun onAdFailedToShow(adError: AdError) {
-            clearAppOpenAd()
-            loadAppOpenAd()
-        }
-
-        override fun onAdDismissed() {
-            clearAppOpenAd()
-            loadAppOpenAd()
-        }
-
-        override fun onAdClicked() {}
-        override fun onAdImpression(impressionData: ImpressionData?) {}
-    }
-
-
-    private fun clearAppOpenAd() {
-        appOpenAd?.setAdEventListener(null)
-        appOpenAd = null
-    }
-
-    private fun loadAppOpenAd() {
-        val appOpenAdLoader = AppOpenAdLoader(application)
-        val appOpenAdLoadListener = object : AppOpenAdLoadListener {
-            override fun onAdLoaded(appOpenAd: AppOpenAd) {
-                this@MainActivity.appOpenAd = appOpenAd
-                if (!isAdShownOnColdStart) {
-                    showAppOpenAd()
-                    isAdShownOnColdStart = true
-                }
-            }
-
-            override fun onAdFailedToLoad(adRequestError: AdRequestError) {}
-        }
-        appOpenAdLoader.setAdLoadListener(appOpenAdLoadListener)
-
-        val AD_UNIT_ID = "R-M-12856457-2"
-        val adRequestConfiguration = AdRequestConfiguration.Builder(AD_UNIT_ID).build()
-        appOpenAdLoader.loadAd(adRequestConfiguration)
-        appOpenAdLoader.loadAd(adRequestConfiguration)
-    }
 }
 
 

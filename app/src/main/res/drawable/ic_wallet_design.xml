@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Экспорт из Figma (узел WalletIcon 5:1125). Path перенесён дословно. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="16"
+    android:viewportHeight="16">
+    <path
+        android:pathData="M12.3333 4H3.66667C2.74619 4 2 4.74619 2 5.66667V11C2 11.9205 2.74619 12.6667 3.66667 12.6667H12.3333C13.2538 12.6667 14 11.9205 14 11V5.66667C14 4.74619 13.2538 4 12.3333 4Z"
+        android:strokeWidth="1.2"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M2 6.66667H14M10.6667 9.33333H12"
+        android:strokeWidth="1.2"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Экспорт из Figma (узел EggIcon 5:1117) — вариант 16dp для вкладок. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="16"
+    android:viewportHeight="16">
+    <path
+        android:pathData="M8 2C10.2 2 12 5 12 8C12 9.06087 11.5786 10.0783 10.8284 10.8284C10.0783 11.5786 9.06087 12 8 12C6.93913 12 5.92172 11.5786 5.17157 10.8284C4.42143 10.0783 4 9.06087 4 8C4 5 5.8 2 8 2Z"
+        android:strokeWidth="1.2"
+        android:strokeColor="#2B2620"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

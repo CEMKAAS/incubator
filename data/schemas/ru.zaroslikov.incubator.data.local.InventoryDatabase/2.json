@@ -1,0 +1,335 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "b772523b065baee95f0f40f7fea91995",
+    "entities": [
+      {
+        "tableName": "Incubator",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `Name` TEXT NOT NULL, `Capacity` INTEGER NOT NULL, `Brand` TEXT NOT NULL, `Model` TEXT NOT NULL, `Price` INTEGER NOT NULL, `Note` TEXT NOT NULL, `AutoTurn` INTEGER NOT NULL, `AutoAiring` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "Name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "capacity",
+            "columnName": "Capacity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "brand",
+            "columnName": "Brand",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "model",
+            "columnName": "Model",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "Price",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "Note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "autoTurn",
+            "columnName": "AutoTurn",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "autoAiring",
+            "columnName": "AutoAiring",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "_id"
+          ]
+        }
+      },
+      {
+        "tableName": "Batch",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `Name` TEXT NOT NULL, `Type` TEXT NOT NULL, `Date` TEXT NOT NULL, `Egg_all` INTEGER NOT NULL, `Egg_all_end` INTEGER NOT NULL, `Airing` TEXT NOT NULL, `Overturn` TEXT NOT NULL, `Archive` TEXT NOT NULL, `Date_end` TEXT NOT NULL, `note` TEXT NOT NULL, `incubatorId` INTEGER NOT NULL, FOREIGN KEY(`incubatorId`) REFERENCES `Incubator`(`_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "Name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "Type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "data",
+            "columnName": "Date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eggAll",
+            "columnName": "Egg_all",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eggAllEND",
+            "columnName": "Egg_all_end",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "airing",
+            "columnName": "Airing",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "over",
+            "columnName": "Overturn",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "arhive",
+            "columnName": "Archive",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dateEnd",
+            "columnName": "Date_end",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "incubatorId",
+            "columnName": "incubatorId",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "_id"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "Incubator",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "incubatorId"
+            ],
+            "referencedColumns": [
+              "_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "Batch_time",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `time` TEXT NOT NULL, `idPT` INTEGER NOT NULL, FOREIGN KEY(`idPT`) REFERENCES `Batch`(`_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "time",
+            "columnName": "time",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idPT",
+            "columnName": "idPT",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "Batch",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "idPT"
+            ],
+            "referencedColumns": [
+              "_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "Batch_value",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `day` INTEGER NOT NULL, `temp` TEXT NOT NULL, `damp` TEXT NOT NULL, `over` TEXT NOT NULL, `airing` TEXT NOT NULL, `note` TEXT NOT NULL, `idPT` INTEGER NOT NULL, FOREIGN KEY(`idPT`) REFERENCES `Batch`(`_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "day",
+            "columnName": "day",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "temp",
+            "columnName": "temp",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "damp",
+            "columnName": "damp",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "over",
+            "columnName": "over",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "airing",
+            "columnName": "airing",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idPT",
+            "columnName": "idPT",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "Batch",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "idPT"
+            ],
+            "referencedColumns": [
+              "_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "Batch_species",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `species` TEXT NOT NULL, `idPT` INTEGER NOT NULL, FOREIGN KEY(`idPT`) REFERENCES `Batch`(`_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "species",
+            "columnName": "species",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idPT",
+            "columnName": "idPT",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "Batch",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "idPT"
+            ],
+            "referencedColumns": [
+              "_id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b772523b065baee95f0f40f7fea91995')"
+    ]
+  }
+}

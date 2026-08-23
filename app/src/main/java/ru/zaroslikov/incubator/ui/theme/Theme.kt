@@ -277,8 +277,14 @@ fun IncubatorTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
+            // Фон под статус-баром — фон экрана: на светлой теме зелёная полоса
+            // из старой палитры выбивалась из макета. На API 35+ значение игнорируется
+            // (принудительный edge-to-edge), но на более старых устройствах ещё работает.
+            @Suppress("DEPRECATION")
+            window.statusBarColor = colorScheme.background.toArgb()
+            // Светлый фон требует ТЁМНЫХ иконок. Раньше здесь стояло darkTheme,
+            // из-за чего на светлой теме иконки были белыми по светлому и не читались.
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }
 

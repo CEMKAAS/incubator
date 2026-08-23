@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Экспорт из Figma (узел EggIcon 5:725). Path перенесён дословно. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="14dp"
+    android:height="14dp"
+    android:viewportWidth="14"
+    android:viewportHeight="14">
+    <path
+        android:pathData="M7 1.75C8.925 1.75 10.5 4.375 10.5 7C10.5 7.92826 10.1313 8.8185 9.47487 9.47487C8.8185 10.1313 7.92826 10.5 7 10.5C6.07174 10.5 5.1815 10.1313 4.52513 9.47487C3.86875 8.8185 3.5 7.92826 3.5 7C3.5 4.375 5.075 1.75 7 1.75Z"
+        android:strokeWidth="1.05"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

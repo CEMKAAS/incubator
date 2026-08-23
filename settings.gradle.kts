@@ -21,4 +21,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "Incubator"
 include(":app")
+include(":domain")
+include(":data")
  
