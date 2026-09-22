@@ -1,6 +1,8 @@
 package ru.zaroslikov.incubator.domain.incubation
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -30,6 +32,41 @@ class IncubationPeriodTest {
                     isIncubationFinished(bird, day)
                 )
             }
+        }
+    }
+
+    /**
+     * Кнопка завершения в шторке закладки зеленеет ровно на два дня: последний день
+     * инкубации и предпоследний. Раньше — красная, и завершение считается досрочным.
+     */
+    @Test
+    fun `canFinishIncubation opens up on the last two days`() {
+        val periods = mapOf(
+            "Курицы" to 21,
+            "Индюки" to 28,
+            "Гуси" to 30,
+            "Утки" to 28,
+            "Перепела" to 17,
+        )
+        for ((bird, total) in periods) {
+            for (day in 1..total) {
+                assertEquals(
+                    "$bird, день $day из $total",
+                    day >= total - 1,
+                    canFinishIncubation(bird, day)
+                )
+            }
+            assertFalse("$bird, предпредпоследний день", canFinishIncubation(bird, total - 2))
+            assertTrue("$bird, предпоследний день", canFinishIncubation(bird, total - 1))
+            assertTrue("$bird, последний день", canFinishIncubation(bird, total))
+        }
+    }
+
+    /** Неизвестному виду срока нет, значит и «рано» для него не бывает. */
+    @Test
+    fun `unknown species is always ready to finish`() {
+        for (day in 1..45) {
+            assertTrue("день $day", canFinishIncubation("Цесарки", day))
         }
     }
 }

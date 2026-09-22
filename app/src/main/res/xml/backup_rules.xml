@@ -1,13 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older that API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+   Что уезжает в резервную копию Android, а что нет (устройства до API 31).
+   Тот же список, что и в data_extraction_rules.xml, — правила разведены по версиям
+   Android, а не по смыслу, и расходиться им нельзя.
+
+   База данных едет: это хозяйство пользователя, и смена телефона должна его сохранять.
+   Перед копированием IncubatorBackupAgent сливает WAL в сам файл, а сам журнал
+   исключён — попав к другой базе, он либо накатит на неё посторонние страницы, либо
+   не даст ей открыться.
+
+   device_prefs не едет: это свойства установки — идентификатор профиля аналитики,
+   отметка об уборке старых напоминаний, код версии для рекламы, флаги первого запуска.
+   Восстановленные на другом телефоне, они склеили бы две установки в один профиль и
+   заставили бы новый телефон считать себя уже виденным. Настройки, которые человек
+   выбирал сам (тема, выключатель напоминаний), лежат в app_prefs и едут.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="sharedpref" path="device_prefs.xml" />
+    <exclude domain="database" path="incubator_database-wal" />
+    <exclude domain="database" path="incubator_database-shm" />
 </full-backup-content>

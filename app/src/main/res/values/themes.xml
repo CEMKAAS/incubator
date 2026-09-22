@@ -1,4 +1,17 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Theme.Incubator" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+        Базовая тема окна. Фон окна — кремовый фон приложения (backgroundLight в
+        Color.kt): это то, что видно в первые кадры до того, как Compose нарисует
+        свой, и белая вспышка перед кремовым экраном выглядела бы как мигание.
+        Тёмная пара — в values-night.
+    -->
+    <style name="Theme.Incubator" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FAF8F3</item>
+        <!-- Системный splash (Android 12+) берёт фон отсюда, а не из windowBackground, и
+             рисует его ДО старта процесса — по теме телефона, а не по выбору в настройках
+             (per-app ночной режим до него не доезжает). Поэтому он одного цвета в обеих
+             темах — фирменный зелёный, который не спорит ни с кремовым, ни с тёмным.
+             На старых версиях атрибут неизвестен и молча пропускается. -->
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">#3F7D5C</item>
+    </style>
 </resources>

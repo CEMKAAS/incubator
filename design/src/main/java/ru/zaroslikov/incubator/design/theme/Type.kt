@@ -1,13 +1,14 @@
-package ru.zaroslikov.incubator.ui.theme
+package ru.zaroslikov.incubator.design.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.googlefonts.Font
 import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.sp
-import ru.zaroslikov.incubator.R
+import ru.zaroslikov.incubator.design.R
 
 
 val provider = GoogleFont.Provider(
@@ -27,10 +28,23 @@ val displayFontFamily = FontFamily(
     Font(googleFont = GoogleFont("Fraunces"), fontProvider = provider, weight = FontWeight.SemiBold),
 )
 
+/**
+ * Курсивное начертание объявлено отдельно ради [DesignType.Note]: без него Compose
+ * наклонил бы прямой Inter сам (синтез), и это выглядит заметно хуже настоящего курсива.
+ * Если провайдер шрифтов курсив не отдаст, синтез всё равно сработает — пояснение
+ * останется наклонным, просто не таким ровным.
+ */
 val bodyFontFamily = FontFamily(
     Font(googleFont = GoogleFont("Inter"), fontProvider = provider, weight = FontWeight.Normal),
     Font(googleFont = GoogleFont("Inter"), fontProvider = provider, weight = FontWeight.Medium),
     Font(googleFont = GoogleFont("Inter"), fontProvider = provider, weight = FontWeight.SemiBold),
+    Font(googleFont = GoogleFont("Inter"), fontProvider = provider, weight = FontWeight.Bold),
+    Font(
+        googleFont = GoogleFont("Inter"),
+        fontProvider = provider,
+        weight = FontWeight.Normal,
+        style = FontStyle.Italic,
+    ),
 )
 
 val monoFontFamily = FontFamily(
@@ -65,7 +79,12 @@ val Typography = Typography(
  * Стили, снятые с макета один в один. Размеры и интерлиньяж — из Figma, не на глаз.
  */
 object DesignType {
-    /** Надзаголовок «МОЯ ПАСЕКА»: JetBrains Mono 11 / 16.5, трекинг 2.2, капслок. */
+    /**
+     * Надзаголовок из макета: JetBrains Mono 11 / 16.5, трекинг 2.2, капслок.
+     *
+     * Сейчас его никто не рисует — «МОЯ ПАСЕКА» с первого экрана убрана, — но стиль
+     * снят с макета и остаётся на месте, чтобы надзаголовок вернулся одной строкой.
+     */
     val Eyebrow = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.Normal,
@@ -188,7 +207,11 @@ object DesignType {
 
     // --- Экран инкубатора (узел 5:547): зелёная шапка, вкладки, карточки закладок ---
 
-    /** Надзаголовок в зелёной шапке — модель и вместимость: JetBrains Mono 12 / 18, трекинг 2.16. */
+    /**
+     * Надзаголовок из макета — модель и вместимость капсом: JetBrains Mono 12 / 18, трекинг 2.16.
+     * Сейчас не используется: строка модели переехала под название инкубатора и набрана
+     * `Caption`. Оставлен рядом с `Eyebrow` — вернуть надзаголовок это одна строка.
+     */
     val HeaderEyebrow = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.Normal,
@@ -219,6 +242,41 @@ object DesignType {
         fontWeight = FontWeight.Normal,
         fontSize = 11.sp,
         lineHeight = 16.5.sp,
+    )
+
+    /**
+     * Пояснение к функции — абзац под карточкой или полем, который рассказывает, что
+     * настройка делает и чего не делает: «Меняется только знак. Суммы по курсу не
+     * пересчитываются…», «Вид общий для всех инкубаторов…». Тот же размер, что у [Micro],
+     * но курсивом: подпись к числу и рассказ о том, как это работает, — разные вещи, и
+     * набранные одинаково они читались бы как одна.
+     *
+     * Курсив — ровно для таких абзацев. Подпись под числом, текст чипа, подсказка
+     * «22 ₽ за яйцо», сообщение об ошибке и пустое состояние остаются [Micro] / [Body]:
+     * это не объяснение функции, а её данные.
+     */
+    val Note = TextStyle(
+        fontFamily = bodyFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontStyle = FontStyle.Italic,
+        fontSize = 11.sp,
+        lineHeight = 16.5.sp,
+    )
+
+    /**
+     * Заглушка пустого списка — «В этом инкубаторе пока нет закладок», «Закладок пока
+     * нет — здесь появится история выводов», «Пока ни одного своего вида»: Inter Bold
+     * 13 / 19.5. Жирным, чтобы она была третьим голосом рядом с заголовком и его
+     * подписью, а не второй подписью: под шапкой с названием и «2 места» строка тем же
+     * начертанием читалась как ещё одно пояснение, а не как ответ «здесь пусто».
+     *
+     * Только для пустого состояния. Пояснение к функции — [Note], подпись — [Caption].
+     */
+    val Placeholder = TextStyle(
+        fontFamily = bodyFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 13.sp,
+        lineHeight = 19.5.sp,
     )
 
     /** Текст статус-чипа закладки: Inter Medium 11 / 16.5. */
@@ -376,7 +434,7 @@ object DesignType {
         lineHeight = 19.5.sp,
     )
 
-    // --- Аналитика за день (узел 16:6632) ---
+    // --- Аналитика за день (узел 21:9088) ---
 
     /** Число в плитке аналитики — «36.3°»: Fraunces SemiBold 20 / 20. */
     val AnalyticsValue = TextStyle(

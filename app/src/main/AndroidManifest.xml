@@ -1,30 +1,162 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+        Камера — только ради сканера QR-кода инкубатора (ui/qr/ScanQrScreen). Запрашивается
+        при входе на тот экран, и нигде больше: фонарик овоскопирования обходится без неё
+        (setTorchMode не требует разрешения). required="false" — приложение работает и на
+        планшете без камеры, просто сканер там скажет, что снимать нечем.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+    <!--
+        Таймер проветривания (airing/AiringTimerService). Foreground service — чтобы
+        таймер, поставленный в форме замера, дошёл до конца, пока человек в другом
+        приложении или с погашенным экраном; specialUse — единственный тип Android 14,
+        под который подходит таймер. WAKE_LOCK держит процессор на время отсчёта,
+        VIBRATE — вибрация вместе с мелодией, когда время вышло.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".InventoryApplication"
         android:allowBackup="true"
+        android:backupAgent=".settings.IncubatorBackupAgent"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
+        android:fullBackupOnly="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Incubator"
-        tools:targetApi="34" >
+        tools:targetApi="37" >
+        <!--
+            singleTop — ради QR-кода инкубатора. Камера телефона открывает ссылку
+            incubator://measure/<id> намерением VIEW; с обычным режимом запуска поверх
+            уже открытого приложения вставала бы вторая копия активности, а так
+            работающая получает намерение через onNewIntent и уходит к нужному
+            инкубатору сама. Напоминаниям это не мешает: их PendingIntent несёт
+            CLEAR_TASK и создаёт активность заново, как и раньше.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:label="@string/app_name"
             android:theme="@style/Theme.Incubator">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!--
+                Ссылка из QR-кода инкубатора. Схема и хост повторяют QrLink.SCHEME / HOST
+                дословно: манифест констант Kotlin не видит, а разойдутся — камера перестанет
+                предлагать открыть код приложением. BROWSABLE обязателен — без него ссылку
+                из камеры и браузера сюда не отдадут.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="incubator"
+                    android:host="measure" />
+            </intent-filter>
         </activity>
+
+        <!--
+            Отдаёт копию базы наружу — «Отправить в другое приложение».
+
+            Без него делиться нечем: с Android 7 файл из своего каталога нельзя передать
+            чужому приложению как file:///, система бросает FileUriExposedException.
+            grantUriPermissions даёт доступ ровно к переданному файлу и ровно тому
+            приложению, которое человек выбрал в системном окне, — и только пока живёт
+            это намерение.
+        -->
+        <!--
+            Пересчёт напоминаний, когда сдвинулось само время.
+
+            «08:00» значит восемь утра там, где человек сейчас, а поставленная работа
+            знает лишь абсолютный момент, посчитанный в прежнем поясе. Приложение при
+            перелёте не запущено — потому приёмник и объявлен здесь, а не заводится в
+            коде: иначе исправление ждало бы, пока человек сам откроет приложение.
+            exported="false" — оба события системные и приходят и так.
+        -->
+        <receiver
+            android:name=".work.TimeChangeReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+            Таймер проветривания: служба ведёт отсчёт и играет мелодию, приёмник
+            принимает кнопки её уведомлений. Оба exported="false" — их зовёт только само
+            приложение. Свойство под службой — объяснение для магазина, зачем службе тип
+            specialUse: Android 14 требует назвать причину рядом с объявлением.
+        -->
+        <service
+            android:name=".airing.AiringTimerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Countdown timer for airing the incubator: keeps the countdown and rings when it ends" />
+        </service>
+        <receiver
+            android:name=".airing.AiringTimerActionReceiver"
+            android:exported="false" />
+
+        <!--
+            Служба, через которую RuStore отдаёт приложению пуши.
+
+            exported="false" — намеренно: связывается с ней SDK, живущий в этом же
+            процессе, а не магазин снаружи. Само уведомление рисует SDK, и значок с
+            каналом он берёт из meta-data ниже.
+        -->
+        <service
+            android:name=".rustore.IncubatorMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="ru.rustore.sdk.pushclient.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Тот же значок, что у напоминаний: уведомления у приложения одни. -->
+        <meta-data
+            android:name="ru.rustore.sdk.pushclient.default_notification_icon"
+            android:resource="@drawable/baseline_egg_24" />
+
+        <!--
+            Канал новостей — отдельный от канала напоминаний, чтобы новости можно было
+            выключить, не выключая того, ради чего приложение ставили.
+
+            Строка повторяет `PUSH_CHANNEL_ID` из `rustore/RuStorePush.kt` дословно:
+            манифест не видит констант Kotlin, а сам канал заводит код. Разойдутся — на
+            Android 8 и новее пуш не покажется вовсе.
+        -->
+        <meta-data
+            android:name="ru.rustore.sdk.pushclient.default_notification_channel_id"
+            android:value="Новости" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <provider
             android:name="androidx.startup.InitializationProvider"

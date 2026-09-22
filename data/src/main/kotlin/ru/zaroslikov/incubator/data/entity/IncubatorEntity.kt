@@ -26,4 +26,8 @@ data class IncubatorEntity(
     val autoTurn: Boolean,
     @ColumnInfo(name = "AutoAiring")
     val autoAiring: Boolean,
+    // Добавлена в двенадцатой версии схемы, см. MIGRATION_11_12. Имя то же, что и у
+    // такой же колонки закладки: и там, и тут это «убрано в архив», то есть с глаз.
+    @ColumnInfo(name = "Hidden")
+    val hidden: Boolean = false,
 )

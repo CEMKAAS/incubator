@@ -1,21 +1,41 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
+# Правила R8 для релизной сборки.
 #
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Здесь только то, что приложение ищет **по имени** — по строке в чужой базе, по записи в
+# манифесте или по имени константы, сохранённому в настройках. Всё остальное R8 находит
+# сам по вызовам, а библиотеки (Room, Compose, WorkManager, AppMetrica, реклама) везут
+# свои правила внутри артефактов, и дублировать их здесь незачем: лишнее `-keep` не
+# делает сборку безопаснее, оно просто отменяет сжатие там, где оно работало.
+#
+# Общее свойство всего перечисленного ниже: сломается оно только в релизе и только в
+# рантайме. Отладочная сборка не минифицируется, тесты гоняются по ней же, lint об этом
+# ничего не знает — поэтому каждое правило написано с объяснением, от чего оно спасает.
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# --- Напоминания ---------------------------------------------------------------------
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# WorkManager хранит имя класса работы **строкой** в собственной базе и создаёт её
+# рефлексией по этой строке. Переименованный воркер означает, что уже поставленные
+# напоминания перестают запускаться — и не сразу, а у тех, кто обновился: их расписание
+# ссылается на имя из прошлой сборки. Конструктор нужен именно тот, которым WorkManager
+# инстанцирует работу.
+-keep public class * extends androidx.work.ListenableWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# --- Резервная копия -----------------------------------------------------------------
+
+# `android:backupAgent` в манифесте — тоже имя класса строкой, но, в отличие от activity
+# и receiver, keep-правила из манифеста его не покрывают. Без этого правила система при
+# резервном копировании не найдёт агента, и база уйдёт в облако без контрольной точки WAL
+# — то есть без последних замеров.
+-keep class ru.zaroslikov.incubator.settings.IncubatorBackupAgent { *; }
+
+# --- Настройки, которые хранятся именем ----------------------------------------------
+
+# `AppSettings.themeMode` пишет в настройки **имя** константы («DARK»), а не её номер —
+# именно чтобы вставка четвёртого режима не перенаправила старое значение на другую тему.
+# Цена этого решения здесь: R8 вправе переименовать константы перечисления, и тогда
+# `ThemeMode.fromName` перестанет узнавать сохранённый выбор — приложение молча вернётся
+# к системной теме у всех, кто выбирал светлую или тёмную.
+-keepclassmembers class ru.zaroslikov.incubator.design.theme.ThemeMode {
+    <fields>;
+}

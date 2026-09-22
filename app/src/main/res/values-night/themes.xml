@@ -1,4 +1,18 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Theme.Incubator" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+        Ночная пара к values/themes.xml: фон окна — тёмный фон приложения
+        (backgroundDark в Color.kt), чтобы при запуске в тёмной теме не мигал светлый.
+        Выбранная в «Настройках» тема доезжает сюда через AppSettings.syncNightMode:
+        на Android 12+ у приложения свой ночной режим, и система берёт values-night по
+        нему, а не по телефону. На старых версиях окно красит MainActivity до setContent.
+    -->
+    <style name="Theme.Incubator" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#161411</item>
+        <!-- Системный splash (Android 12+) берёт фон отсюда, а не из windowBackground, и
+             рисует его ДО старта процесса — по теме телефона, а не по выбору в настройках
+             (per-app ночной режим до него не доезжает). Поэтому он одного цвета в обеих
+             темах — фирменный зелёный, который не спорит ни с кремовым, ни с тёмным.
+             На старых версиях атрибут неизвестен и молча пропускается. -->
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">#3F7D5C</item>
+    </style>
 </resources>

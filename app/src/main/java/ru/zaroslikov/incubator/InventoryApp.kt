@@ -25,25 +25,44 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
+import ru.zaroslikov.incubator.design.components.clearFocusOnTap
 import ru.zaroslikov.incubator.ui.navigation.InventoryNavHost
-import java.text.NumberFormat
-import java.text.SimpleDateFormat
+import ru.zaroslikov.incubator.ui.pickerMillisToDate
 import java.time.LocalDate
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
 
 
+/**
+ * @param showGuide инструкция ещё не закрыта: приложение открывается ею, а не главным
+ *   экраном. Верно и для обновившихся — инструкцию видят все, кто её не закрыл.
+ * @param openAddIncubator после инструкции сразу открыть форму инкубатора. Только для
+ *   настоящего первого запуска: обновившийся попадает на свой список инкубаторов.
+ * @param launchTarget куда приложение открыто снаружи — закладка из уведомления или
+ *   инкубатор из QR-кода; `null` — обычный запуск с главного экрана.
+ * @param launchSerial порядковый номер цели: растёт, когда ссылка из QR-кода приходит
+ *   в работающее приложение, чтобы граф отличил новую цель от уже обработанной.
+ * @param onGuideFinished инструкцию дочитали или пропустили — активность снимает флаги
+ *   и спрашивает разрешение на уведомления.
+ */
 @Composable
 fun InventoryApp(
     navController: NavHostController = rememberNavController(),
-    firstLaunch: Boolean
+    showGuide: Boolean,
+    openAddIncubator: Boolean = false,
+    launchTarget: LaunchTarget? = null,
+    launchSerial: Int = 0,
+    onGuideFinished: () -> Unit = {},
 ) {
-    Scaffold { innerPadding ->
+    // Фокус снимается нажатием мимо поля на любом экране: обработчик стоит в корне,
+    // а не в каждой форме, — до него доходит только касание, которое не забрали себе
+    // поле, кнопка или карточка.
+    Scaffold(modifier = Modifier.clearFocusOnTap()) { innerPadding ->
         InventoryNavHost(
             navController = navController,
-            firstLaunch = firstLaunch,
+            showGuide = showGuide,
+            openAddIncubator = openAddIncubator,
+            launchTarget = launchTarget,
+            launchSerial = launchSerial,
+            onGuideFinished = onGuideFinished,
             contentPadding = innerPadding
         )
     }
@@ -87,51 +106,11 @@ fun TopAppBarStart(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun TopAppBarEdit(
-    firstLaunch: Boolean = false,
-    title: String, navigateUp: () -> Unit = {},
-    scrollBehavior: TopAppBarScrollBehavior? = null,
-) {
-    CenterAlignedTopAppBar(
-        colors = TopAppBarDefaults.largeTopAppBarColors(
-            titleContentColor = MaterialTheme.colorScheme.primary,
-        ),
-        title = {
-            Text(text = title)
-        },
-        scrollBehavior = scrollBehavior,
-        navigationIcon = {
-            if (!firstLaunch) {
-                IconButton(onClick = navigateUp) {
-                    Icon(
-                        imageVector = Icons.Filled.ArrowBack,
-                        contentDescription = "Назад"
-                    )
-                }
-            }
-        }
-    )
-}
-
 fun formatterTime(hour: Int, minute: Int): String {
     val formattedHour = hour.toString().padStart(2, '0')
     val formattedMinute = minute.toString().padStart(2, '0')
 
     return "$formattedHour:$formattedMinute"
-}
-
-fun convertDateStringToMillis(dateString: String): Long {
-    val sd = dateString.split(".")
-
-    val calendar = Calendar.getInstance().apply {
-        set(Calendar.DAY_OF_MONTH, sd[0].toInt())
-        set(Calendar.MONTH, sd[1].toInt()-1)
-        set(Calendar.YEAR,  sd[2].toInt())
-    }
-    calendar.timeZone = TimeZone.getDefault()
-    return calendar.timeInMillis
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -159,10 +138,11 @@ fun DatePickerDialogSample(
         confirmButton = {
             TextButton(
                 onClick = {
-                    val format = SimpleDateFormat("dd.MM.yyyy")
-                    val formattedDate: String =
-                        format.format(datePickerState.selectedDateMillis)
-                    onDateSelected(formattedDate)
+                    // Пикер отдаёт полночь по UTC, а без выбранной даты — null: и то и
+                    // другое здесь раньше уходило в SimpleDateFormat как есть, и второе
+                    // роняло приложение прямо на кнопке «Выбрать».
+                    val millis = datePickerState.selectedDateMillis
+                    onDateSelected(if (millis == null) dateToday else pickerMillisToDate(millis))
                 },
             ) { Text("Выбрать") }
         },
