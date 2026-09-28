@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  «Как в системе» для переключателя темы в «Настройках»: круг, залитый наполовину —
+  день и ночь в одном знаке. В макете такого экрана нет, поэтому нарисован вручную в
+  стиле ic_chart_design: 16 dp, обводка 1.2, цвет #8A8072 как запасной — в вёрстке
+  перекрашивается через tint.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="16"
+    android:viewportHeight="16">
+    <path
+        android:pathData="M8 2C4.6863 2 2 4.6863 2 8C2 11.3137 4.6863 14 8 14C11.3137 14 14 11.3137 14 8C14 4.6863 11.3137 2 8 2Z"
+        android:strokeWidth="1.2"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M8 2V14C11.3137 14 14 11.3137 14 8C14 4.6863 11.3137 2 8 2Z"
+        android:fillColor="#8A8072" />
+</vector>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Нарисована в стиле экспортированных из Figma иконок (ic_chart_design): штрих 1.2,
+     круглые концы. Вертикальный телефон и дуга со стрелкой, ложащаяся набок, — «повернуть
+     экран». Не круглая стрелка: та читается как «обновить». -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="16"
+    android:viewportHeight="16">
+    <path
+        android:pathData="M2.5 5.5C2.5 4.95 2.95 4.5 3.5 4.5H7.5C8.05 4.5 8.5 4.95 8.5 5.5V13.5C8.5 14.05 8.05 14.5 7.5 14.5H3.5C2.95 14.5 2.5 14.05 2.5 13.5V5.5ZM4.8 12.5H6.2M9.5 3C11.7 3 13.5 4.8 13.5 7V9M13.5 9L12 7.5M13.5 9L15 7.5"
+        android:strokeWidth="1.2"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

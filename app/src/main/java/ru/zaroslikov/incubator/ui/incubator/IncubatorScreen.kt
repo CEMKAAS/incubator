@@ -112,6 +112,7 @@ import ru.zaroslikov.incubator.transfer.ScheduleTransferState
 import ru.zaroslikov.incubator.ui.AppViewModelProvider
 import ru.zaroslikov.incubator.ui.batch.AddBatchSheet
 import ru.zaroslikov.incubator.ui.batch.BatchDetailSheet
+import ru.zaroslikov.incubator.ui.batch.airingTimerActive
 import ru.zaroslikov.incubator.ui.batch.FinishBatchHost
 import ru.zaroslikov.incubator.ui.batch.StatusChip
 import ru.zaroslikov.incubator.ui.qr.IncubatorQrSheet
@@ -1166,13 +1167,22 @@ private fun BatchesTab(
             visible = !addButtonVisible && !readOnly,
             enter = fadeIn(tween(FabFadeMillis)) + scaleIn(tween(FabFadeMillis), initialScale = 0.7f),
             exit = fadeOut(tween(FabFadeMillis)) + scaleOut(tween(FabFadeMillis), targetScale = 0.7f),
-            modifier = if (onAddMeasurement != null) {
+            // Пока идёт таймер проветривания, слева в той же линии стоит его кольцо
+            // (`AiringTimerFab`), и широкая кнопка посередине легла бы на него на узком
+            // экране — на это время она уходит к правому краю, как мини-«+».
+            // Лист с вкладками нарисован на `SheetOverlap` выше, чем размечен (см. `offset`
+            // над переключателем), и кнопка внутри него поднималась вместе с ним: её 20 dp
+            // от низа на экране были 37. Обратный сдвиг ставит её на те же 20 dp над
+            // системной панелью, что «+ Инкубатор» и кольцо таймера слева.
+            modifier = if (onAddMeasurement != null && !airingTimerActive()) {
                 Modifier
                     .align(Alignment.BottomCenter)
+                    .offset(y = SheetOverlap)
                     .padding(bottom = ScreenPadding)
             } else {
                 Modifier
                     .align(Alignment.BottomEnd)
+                    .offset(y = SheetOverlap)
                     .padding(end = ScreenPadding, bottom = ScreenPadding)
             },
         ) {

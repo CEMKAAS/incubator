@@ -1,0 +1,920 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 16,
+    "identityHash": "dfeedb1b649b6b525c7eaacc9f74f5c5",
+    "entities": [
+      {
+        "tableName": "Incubator",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `Name` TEXT NOT NULL, `Capacity` INTEGER NOT NULL, `Brand` TEXT NOT NULL, `Model` TEXT NOT NULL, `Price` INTEGER NOT NULL, `Note` TEXT NOT NULL, `AutoTurn` INTEGER NOT NULL, `AutoAiring` INTEGER NOT NULL, `Hidden` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "Name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "capacity",
+            "columnName": "Capacity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "brand",
+            "columnName": "Brand",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "model",
+            "columnName": "Model",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "Price",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "Note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "autoTurn",
+            "columnName": "AutoTurn",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "autoAiring",
+            "columnName": "AutoAiring",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hidden",
+            "columnName": "Hidden",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "_id"
+          ]
+        }
+      },
+      {
+        "tableName": "Batch",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `Name` TEXT NOT NULL, `Type` TEXT NOT NULL, `Date` TEXT NOT NULL, `Egg_all` INTEGER NOT NULL, `Egg_all_end` INTEGER NOT NULL, `Airing` TEXT NOT NULL, `Overturn` TEXT NOT NULL, `Archive` TEXT NOT NULL, `Date_end` TEXT NOT NULL, `note` TEXT NOT NULL, `incubatorId` INTEGER NOT NULL, `Breed` TEXT NOT NULL, `Price` INTEGER NOT NULL, `PricePerEgg` INTEGER NOT NULL, `EndReason` TEXT NOT NULL, `ChickPrice` INTEGER NOT NULL, `ChickPricePerHead` INTEGER NOT NULL, `Hidden` INTEGER NOT NULL, `Time` TEXT NOT NULL, `Egg_rejected` INTEGER NOT NULL, FOREIGN KEY(`incubatorId`) REFERENCES `Incubator`(`_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "Name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "Type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "data",
+            "columnName": "Date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eggAll",
+            "columnName": "Egg_all",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eggAllEND",
+            "columnName": "Egg_all_end",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "airing",
+            "columnName": "Airing",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "over",
+            "columnName": "Overturn",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "arhive",
+            "columnName": "Archive",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dateEnd",
+            "columnName": "Date_end",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "incubatorId",
+            "columnName": "incubatorId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "breed",
+            "columnName": "Breed",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "Price",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pricePerEgg",
+            "columnName": "PricePerEgg",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endReason",
+            "columnName": "EndReason",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chickPrice",
+            "columnName": "ChickPrice",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chickPricePerHead",
+            "columnName": "ChickPricePerHead",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hidden",
+            "columnName": "Hidden",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "time",
+            "columnName": "Time",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eggRejected",
+            "columnName": "Egg_rejected",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_Batch_incubatorId",
+            "unique": false,
+            "columnNames": [
+              "incubatorId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_Batch_incubatorId` ON `${TABLE_NAME}` (`incubatorId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "Incubator",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "incubatorId"
+            ],
+            "referencedColumns": [
+              "_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "Batch_time",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `time` TEXT NOT NULL, `idPT` INTEGER NOT NULL, `note` TEXT NOT NULL, FOREIGN KEY(`idPT`) REFERENCES `Batch`(`_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "time",
+            "columnName": "time",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idPT",
+            "columnName": "idPT",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_Batch_time_idPT",
+            "unique": false,
+            "columnNames": [
+              "idPT"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_Batch_time_idPT` ON `${TABLE_NAME}` (`idPT`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "Batch",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "idPT"
+            ],
+            "referencedColumns": [
+              "_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "Batch_value",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `day` INTEGER NOT NULL, `temp` REAL, `damp` REAL, `over` INTEGER, `airingCount` INTEGER, `airingTime` INTEGER, `note` TEXT NOT NULL, `idPT` INTEGER NOT NULL, FOREIGN KEY(`idPT`) REFERENCES `Batch`(`_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "day",
+            "columnName": "day",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "temp",
+            "columnName": "temp",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "damp",
+            "columnName": "damp",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "over",
+            "columnName": "over",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "airingCount",
+            "columnName": "airingCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "airingTime",
+            "columnName": "airingTime",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idPT",
+            "columnName": "idPT",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_Batch_value_idPT",
+            "unique": false,
+            "columnNames": [
+              "idPT"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_Batch_value_idPT` ON `${TABLE_NAME}` (`idPT`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "Batch",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "idPT"
+            ],
+            "referencedColumns": [
+              "_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "Batch_species",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `species` TEXT NOT NULL, `idPT` INTEGER NOT NULL, FOREIGN KEY(`idPT`) REFERENCES `Batch`(`_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "species",
+            "columnName": "species",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idPT",
+            "columnName": "idPT",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_Batch_species_idPT",
+            "unique": false,
+            "columnNames": [
+              "idPT"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_Batch_species_idPT` ON `${TABLE_NAME}` (`idPT`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "Batch",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "idPT"
+            ],
+            "referencedColumns": [
+              "_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "Batch_measurement",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `idValue` INTEGER NOT NULL, `time` TEXT NOT NULL, `temp` REAL, `damp` REAL, `over` INTEGER, `airingCount` INTEGER, `airingTime` INTEGER, `note` TEXT NOT NULL, FOREIGN KEY(`idValue`) REFERENCES `Batch_value`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idValue",
+            "columnName": "idValue",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "time",
+            "columnName": "time",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "temp",
+            "columnName": "temp",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "damp",
+            "columnName": "damp",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "over",
+            "columnName": "over",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "airingCount",
+            "columnName": "airingCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "airingTime",
+            "columnName": "airingTime",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_Batch_measurement_idValue",
+            "unique": false,
+            "columnNames": [
+              "idValue"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_Batch_measurement_idValue` ON `${TABLE_NAME}` (`idValue`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "Batch_value",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "idValue"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "Batch_candling",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `idPT` INTEGER NOT NULL, `day` INTEGER NOT NULL, `date` TEXT NOT NULL, `rejected` INTEGER NOT NULL, FOREIGN KEY(`idPT`) REFERENCES `Batch`(`_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idPT",
+            "columnName": "idPT",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "day",
+            "columnName": "day",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "date",
+            "columnName": "date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rejected",
+            "columnName": "rejected",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_Batch_candling_idPT_day",
+            "unique": true,
+            "columnNames": [
+              "idPT",
+              "day"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_Batch_candling_idPT_day` ON `${TABLE_NAME}` (`idPT`, `day`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "Batch",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "idPT"
+            ],
+            "referencedColumns": [
+              "_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "User",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` INTEGER NOT NULL, `Name` TEXT NOT NULL, PRIMARY KEY(`_id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "Name",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "_id"
+          ]
+        }
+      },
+      {
+        "tableName": "Custom_species",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`_id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `Name` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "Name",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_Custom_species_Name",
+            "unique": true,
+            "columnNames": [
+              "Name"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_Custom_species_Name` ON `${TABLE_NAME}` (`Name`)"
+          }
+        ]
+      },
+      {
+        "tableName": "Custom_species_day",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `speciesId` INTEGER NOT NULL, `day` INTEGER NOT NULL, `temp` REAL, `damp` REAL, `over` INTEGER, `airingCount` INTEGER, `airingTime` INTEGER, `candling` INTEGER NOT NULL, FOREIGN KEY(`speciesId`) REFERENCES `Custom_species`(`_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "speciesId",
+            "columnName": "speciesId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "day",
+            "columnName": "day",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "temp",
+            "columnName": "temp",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "damp",
+            "columnName": "damp",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "over",
+            "columnName": "over",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "airingCount",
+            "columnName": "airingCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "airingTime",
+            "columnName": "airingTime",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "candling",
+            "columnName": "candling",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_Custom_species_day_speciesId_day",
+            "unique": true,
+            "columnNames": [
+              "speciesId",
+              "day"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_Custom_species_day_speciesId_day` ON `${TABLE_NAME}` (`speciesId`, `day`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "Custom_species",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "speciesId"
+            ],
+            "referencedColumns": [
+              "_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "Batch_breed",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `idPT` INTEGER NOT NULL, `name` TEXT NOT NULL, `eggs` INTEGER NOT NULL, `hatched` INTEGER NOT NULL, `rejected` INTEGER NOT NULL, `price` INTEGER NOT NULL, `pricePerEgg` INTEGER NOT NULL, `chickPrice` INTEGER NOT NULL, `chickPricePerHead` INTEGER NOT NULL, FOREIGN KEY(`idPT`) REFERENCES `Batch`(`_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idPT",
+            "columnName": "idPT",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eggs",
+            "columnName": "eggs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hatched",
+            "columnName": "hatched",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rejected",
+            "columnName": "rejected",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "price",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pricePerEgg",
+            "columnName": "pricePerEgg",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chickPrice",
+            "columnName": "chickPrice",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chickPricePerHead",
+            "columnName": "chickPricePerHead",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_Batch_breed_idPT",
+            "unique": false,
+            "columnNames": [
+              "idPT"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_Batch_breed_idPT` ON `${TABLE_NAME}` (`idPT`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "Batch",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "idPT"
+            ],
+            "referencedColumns": [
+              "_id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "Batch_candling_breed",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `idCandling` INTEGER NOT NULL, `breedId` INTEGER NOT NULL, `rejected` INTEGER NOT NULL, FOREIGN KEY(`idCandling`) REFERENCES `Batch_candling`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`breedId`) REFERENCES `Batch_breed`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idCandling",
+            "columnName": "idCandling",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "breedId",
+            "columnName": "breedId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rejected",
+            "columnName": "rejected",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_Batch_candling_breed_idCandling_breedId",
+            "unique": true,
+            "columnNames": [
+              "idCandling",
+              "breedId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_Batch_candling_breed_idCandling_breedId` ON `${TABLE_NAME}` (`idCandling`, `breedId`)"
+          },
+          {
+            "name": "index_Batch_candling_breed_breedId",
+            "unique": false,
+            "columnNames": [
+              "breedId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_Batch_candling_breed_breedId` ON `${TABLE_NAME}` (`breedId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "Batch_candling",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "idCandling"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "Batch_breed",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "breedId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'dfeedb1b649b6b525c7eaacc9f74f5c5')"
+    ]
+  }
+}

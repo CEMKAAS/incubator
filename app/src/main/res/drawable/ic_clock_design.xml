@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Часы для поля «Время закладки». Экспорта из Figma нет — в макете такого поля тоже
+  нет, — поэтому нарисованы вручную в стиле ic_calendar_design: те же 14 dp, обводка
+  1.05 и цвет #8A8072, чтобы два поля рядом выглядели парой.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="14dp"
+    android:height="14dp"
+    android:viewportWidth="14"
+    android:viewportHeight="14">
+    <path
+        android:pathData="M7 1.75C4.1005 1.75 1.75 4.1005 1.75 7C1.75 9.8995 4.1005 12.25 7 12.25C9.8995 12.25 12.25 9.8995 12.25 7C12.25 4.1005 9.8995 1.75 7 1.75Z"
+        android:strokeWidth="1.05"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M7 4.08333V7L8.86667 8.86667"
+        android:strokeWidth="1.05"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

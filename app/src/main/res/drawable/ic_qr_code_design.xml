@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  QR-код — «qr_code_2» из Material Symbols, path перенесён дословно. В material-icons-core
+  такого значка нет, а расширенный набор ради одной иконки тянуть незачем. Цвет здесь
+  запасной, Icon(painter, tint = …) перекрашивает.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#8A8072"
+        android:pathData="M15,21h-2v-2h2V21z M13,14h-2v5h2V14z M21,12h-2v4h2V12z M19,12h-2v-2h2V12z M15,12h-2v2h2V12z M13,10h-2v2h2V10z M21,10h-2v2h2V10z M19,16h-2v5h2V16z M17,20h-2v1h2V20z M17,14h-2v2h2V14z M11,3H3v8h8V3z M9,9H5V5h4V9z M21,3h-8v8h8V3z M19,9h-4V5h4V9z M11,13H3v8h8V13z M9,19H5v-4h4V19z" />
+</vector>

@@ -303,6 +303,10 @@ internal fun BatchDetailSheet(
     // нажать на то, чего сейчас не станет.
     val viewOnly = readOnly || !state.loaded || state.finished
 
+    // Пока шторка открыта, плавающая кнопка таймера этой закладки не нужна: его
+    // карточка стоит здесь же, в форме «Замеры за сегодня». См. [AiringTimerFab].
+    if (state.loaded) RegisterTimerForm(uiState.timerTarget)
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,

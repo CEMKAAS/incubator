@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Нарисована в стиле экспортированных из Figma иконок (ic_chart_design): штрих 1.2,
+     круглые концы. Четыре уголка — «на весь экран»; в material-icons-core такой нет. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="16"
+    android:viewportHeight="16">
+    <path
+        android:pathData="M2 6V2H6M10 2H14V6M14 10V14H10M6 14H2V10"
+        android:strokeWidth="1.2"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

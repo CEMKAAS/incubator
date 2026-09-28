@@ -1,0 +1,247 @@
+<!--
+  Первое овоскопирование: развитие только началось.
+
+  Зародыш — тёмная точка чуть выше середины, от неё расходится редкая сеть сосудов;
+  верх занимает светлая воздушная камера. Это то, что описывает stageGoal(1) в
+  CandlingSheet.kt, и картинка должна совпадать с текстом под ней.
+
+  Вектор, а не PNG: прежние картинки были 169×219 и в карточке шторки (280 dp) на
+  трёхкратном экране растягивались впятеро.
+
+  Про геометрию. Яйцо — две четверти эллипса, сшитые по самой широкой точке (y = 90):
+  сверху короче и потому тупее, снизу длиннее и уже. Тупым концом вверх, потому что
+  воздушная камера именно там. Боковины камеры — не отдельная кривая на глаз, а та же
+  кривая скорлупы, разрезанная по де Кастельжо в точке нужной высоты; поэтому светлое
+  пятно нигде не вылезает за края и не отходит от них.
+
+  Ответвления сосудов начинаются в серединах стволов, посчитанных как B(0.5) =
+  (P0 + 3·P1 + 3·P2 + P3) / 8, — иначе они висят рядом со стволом отдельными
+  палочками, а не растут из него.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="160dp"
+    android:height="210dp"
+    android:viewportWidth="160"
+    android:viewportHeight="210">
+
+    <!-- Скорлупа на просвет. -->
+    <path
+        android:pathData="M80,14 C114,14 142,48 142,90 C142,148 114,196 80,196 C46,196 18,148 18,90 C18,48 46,14 80,14 Z"
+        android:fillColor="#FFB33A" />
+
+    <!-- Воздушная камера у тупого конца. -->
+    <path
+        android:pathData="M80,14 C104.7,14 126.1,31.9 136.1,57.7 C120,66 40,66 23.9,57.7 C33.9,31.9 55.3,14 80,14 Z"
+        android:fillColor="#FFE9A8" />
+
+    <!-- Стволы сосудов: от зародыша к краям, с изгибом, а не спицами. -->
+    <group>
+        <path
+            android:pathData="M80,118 C70,104 64,92 52,74"
+            android:strokeColor="#E85C1E"
+            android:strokeWidth="1.9"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M80,118 C82,104 76,90 78,74"
+            android:strokeColor="#E85C1E"
+            android:strokeWidth="1.9"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M80,118 C92,106 98,94 110,78"
+            android:strokeColor="#E85C1E"
+            android:strokeWidth="1.9"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M80,118 C96,114 110,118 126,112"
+            android:strokeColor="#E85C1E"
+            android:strokeWidth="1.9"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M80,118 C94,128 100,142 110,158"
+            android:strokeColor="#E85C1E"
+            android:strokeWidth="1.9"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M80,118 C84,134 78,150 80,170"
+            android:strokeColor="#E85C1E"
+            android:strokeWidth="1.9"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M80,118 C66,128 60,142 50,158"
+            android:strokeColor="#E85C1E"
+            android:strokeWidth="1.9"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M80,118 C64,114 50,118 34,112"
+            android:strokeColor="#E85C1E"
+            android:strokeWidth="1.9"
+            android:strokeLineCap="round" />
+    </group>
+
+    <!-- Ответвления из середин стволов: тоньше и бледнее, иначе сеть читается решёткой. -->
+    <group>
+        <path
+            android:pathData="M66.8,97.5 C60,92 54,90 46,86"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M66.8,97.5 C62,90 60,84 58,76"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M79,96.3 C73,92 69,88 65,82"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M79,96.3 C85,92 89,88 93,82"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M95,99.5 C100,92 106,90 112,86"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M95,99.5 C102,100 108,102 116,102"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M103,115.8 C108,108 112,104 118,98"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M103,115.8 C108,122 112,128 118,134"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M96.5,135.8 C104,132 110,132 118,132"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M96.5,135.8 C98,144 98,150 96,158"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M80.8,142.5 C74,146 68,150 62,156"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M80.8,142.5 C88,148 94,154 98,162"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M63.5,135.8 C56,132 50,132 42,132"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M63.5,135.8 C62,144 62,150 64,158"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M57,115.8 C52,108 48,104 42,98"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M57,115.8 C52,122 48,128 42,134"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.8"
+            android:strokeWidth="1.05"
+            android:strokeLineCap="round" />
+    </group>
+
+    <!-- Веточки на концах стволов: сосуды не обрываются, а сходят на нет. -->
+    <group>
+        <path
+            android:pathData="M52,74 C46,72 42,70 36,68"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.6"
+            android:strokeWidth="0.8"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M78,74 C72,72 68,72 62,72"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.6"
+            android:strokeWidth="0.8"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M110,78 C116,76 120,74 126,72"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.6"
+            android:strokeWidth="0.8"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M126,112 C130,106 132,102 134,96"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.6"
+            android:strokeWidth="0.8"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M110,158 C113,164 114,168 114,172"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.6"
+            android:strokeWidth="0.8"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M80,170 C80,176 80,182 80,188"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.6"
+            android:strokeWidth="0.8"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M50,158 C47,164 46,168 46,172"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.6"
+            android:strokeWidth="0.8"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M34,112 C30,106 28,102 26,96"
+            android:strokeColor="#E85C1E"
+            android:strokeAlpha="0.6"
+            android:strokeWidth="0.8"
+            android:strokeLineCap="round" />
+    </group>
+
+    <!-- Зародыш: размытое пятно и точка в нём. -->
+    <path
+        android:pathData="M80,118 m-13,0 a13,13 0 1,0 26,0 a13,13 0 1,0 -26,0 Z"
+        android:fillColor="#E04E15"
+        android:fillAlpha="0.35" />
+    <path
+        android:pathData="M80,118 m-5.5,0 a5.5,5.5 0 1,0 11,0 a5.5,5.5 0 1,0 -11,0 Z"
+        android:fillColor="#C9400F" />
+
+    <!-- Край скорлупы: светлее заливки, как на просвет. -->
+    <path
+        android:pathData="M80,14 C114,14 142,48 142,90 C142,148 114,196 80,196 C46,196 18,148 18,90 C18,48 46,14 80,14 Z"
+        android:strokeColor="#FFD98A"
+        android:strokeWidth="3" />
+</vector>

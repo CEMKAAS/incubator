@@ -12,6 +12,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -171,13 +175,22 @@ fun StartScreen(
     Scaffold(
         modifier = Modifier.padding(contentPadding),
         containerColor = MaterialTheme.colorScheme.background,
+        // Нижний отступ системной панели уже внесён `contentPadding` корневого
+        // `Scaffold`; свой этот считал бы его второй раз и поднимал «+ Инкубатор» на
+        // высоту панели выше, чем стоят кнопки экрана инкубатора и кольцо таймера.
+        // Верхний оставлен как был: заголовок стоит там, где стоял.
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top),
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { showAddSheet = true },
                 containerColor = DesignPalette.Accent,
                 contentColor = DesignPalette.OnAccent,
                 icon = { Icon(Icons.Filled.Add, "Добавить") },
-                text = { Text(text = "Инкубатор") }
+                text = { Text(text = "Инкубатор") },
+                // `Scaffold` ставит кнопку в 16 dp от краёв; ещё 4 — чтобы она стояла на
+                // тех же 20 dp, что кнопки экрана инкубатора и кольцо таймера
+                // проветривания слева (`AiringTimerFab`), с которым она в одной линии.
+                modifier = Modifier.padding(end = 4.dp, bottom = 4.dp),
             )
         }
     ) { innerPadding ->

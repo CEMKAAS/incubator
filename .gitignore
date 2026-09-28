@@ -8,3 +8,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Состояние oh-my-claudecode и аварийные дампы JVM — не часть проекта
+.omc/
+hs_err_pid*.log
+replay_pid*.log

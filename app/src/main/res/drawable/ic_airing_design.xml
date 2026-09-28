@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Проветривание — три струи воздуха с завитками на концах. Значка в макете нет,
+  нарисован в том же стиле, что и экспортированные из Figma ic_*_design: только
+  обводка, 16dp, скруглённые стыки. Цвет запасной, Icon(painter, tint = …)
+  перекрашивает.
+
+  Завитки нужны: три голых горизонтальных штриха читались бы как «меню».
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="16"
+    android:viewportHeight="16">
+    <path
+        android:pathData="M2.5 5.2h6.7a1.5 1.5 0 1 0 -1.5 -1.5"
+        android:strokeWidth="1.2"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M2.5 8h8.5a1.5 1.5 0 1 1 1.5 1.5"
+        android:strokeWidth="1.2"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M2.5 10.8h5.5a1.5 1.5 0 1 0 -1.5 1.5"
+        android:strokeWidth="1.2"
+        android:strokeColor="#8A8072"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
