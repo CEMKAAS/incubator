@@ -211,12 +211,16 @@ private fun TimerIdle(planMinutes: Int?, onStart: (Int) -> Unit) {
                         text = "$plan мин · план",
                         selected = !custom,
                         onClick = { custom = false },
+                        // Вес без растягивания: по тексту, пока влезает, а на узком
+                        // экране или крупном шрифте — сжимается и кончается «…».
+                        modifier = Modifier.weight(1f, fill = false),
                     )
                 }
                 ChoiceChip(
                     text = "Своё время",
                     selected = custom,
                     onClick = { custom = true },
+                    modifier = Modifier.weight(1f, fill = false),
                 )
             }
             Spacer(Modifier.width(8.dp))

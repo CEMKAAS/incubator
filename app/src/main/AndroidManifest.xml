@@ -23,6 +23,24 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!--
+        Календарь — только ради вопроса «Добавить даты в календарь?» после создания
+        закладки (ui/batch/AddToCalendarDialog, calendar/CalendarWriter). Запрашивается по
+        нажатию «Добавить»: READ — найти календари, куда можно писать, WRITE — записать
+        овоскопирования, прекращение переворота и вывод. Без них даты добавляются по одной
+        интентом, которому разрешение не нужно.
+    -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+
+    <!--
+        «Моё хозяйство» — чтобы после вывода предложить завести птенцов там
+        (farm/FarmApp). С Android 11 чужой пакет без этой строки невидим, и кнопка не
+        появилась бы никогда. Имя повторяет FarmLink.PACKAGE дословно.
+    -->
+    <queries>
+        <package android:name="com.zaroslikov.fermacompose2" />
+    </queries>
 
     <application
         android:name=".InventoryApplication"

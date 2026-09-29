@@ -12,6 +12,7 @@ import ru.zaroslikov.incubator.ui.incubator.IncubatorMeasurementViewModel
 import ru.zaroslikov.incubator.ui.incubator.IncubatorViewModel
 import ru.zaroslikov.incubator.ui.batch.BatchDetailViewModel
 import ru.zaroslikov.incubator.ui.batch.CandlingViewModel
+import ru.zaroslikov.incubator.ui.batch.FinishGroupViewModel
 import ru.zaroslikov.incubator.ui.menu.AnalyticsViewModel
 import ru.zaroslikov.incubator.ui.menu.SettingsViewModel
 import ru.zaroslikov.incubator.ui.qr.IncubatorQrViewModel
@@ -29,6 +30,13 @@ object AppViewModelProvider {
                 inventoryApplication().container.itemsRepository,
                 inventoryApplication().container.workRepository,
                 inventoryApplication().container.airingTimer,
+            )
+        }
+
+        initializer {
+            FinishGroupViewModel(
+                inventoryApplication().container.itemsRepository,
+                inventoryApplication().container.workRepository,
             )
         }
 

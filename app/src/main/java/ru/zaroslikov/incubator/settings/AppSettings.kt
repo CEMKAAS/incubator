@@ -325,7 +325,6 @@ class AppSettings(context: Context) {
             endAt = devicePrefs.getLong(KEY_TIMER_END_AT, 0L),
             minutes = devicePrefs.getInt(KEY_TIMER_MINUTES, 0),
             ringing = devicePrefs.getBoolean(KEY_TIMER_RINGING, false),
-            taken = devicePrefs.getBoolean(KEY_TIMER_TAKEN, false),
         ).toState()
         set(value) {
             val record = AiringTimerRecord.of(value)
@@ -339,7 +338,9 @@ class AppSettings(context: Context) {
                 putLong(KEY_TIMER_END_AT, record.endAt)
                 putInt(KEY_TIMER_MINUTES, record.minutes)
                 putBoolean(KEY_TIMER_RINGING, record.ringing)
-                putBoolean(KEY_TIMER_TAKEN, record.taken)
+                // Отметки «забрано» больше нет — см. `AiringTimerState`; ключ прежних
+                // версий снимается, чтобы не лежать в файле без хозяина.
+                remove(KEY_TIMER_TAKEN_LEGACY)
             }
         }
 
@@ -435,7 +436,7 @@ class AppSettings(context: Context) {
         private const val KEY_TIMER_END_AT = "airing_timer_end_at"
         private const val KEY_TIMER_MINUTES = "airing_timer_minutes"
         private const val KEY_TIMER_RINGING = "airing_timer_ringing"
-        private const val KEY_TIMER_TAKEN = "airing_timer_taken"
+        private const val KEY_TIMER_TAKEN_LEGACY = "airing_timer_taken"
 
         /** Ключи, переезжающие из [PREFS_NAME] в [DEVICE_PREFS_NAME] на первом запуске. */
         private val INSTALLATION_KEYS = listOf(

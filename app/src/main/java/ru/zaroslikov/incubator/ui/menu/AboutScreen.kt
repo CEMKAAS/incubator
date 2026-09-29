@@ -55,13 +55,17 @@ object AboutDestination : NavigationDestination {
     override val titleRes = R.string.app_name
 }
 
-/** Куда писать и куда заходить — единственные три адреса, которые знает приложение. */
+/** Куда писать и куда заходить — единственные четыре адреса, которые знает приложение. */
 private const val SUPPORT_EMAIL = "s.zaroslikov@yandex.ru"
 private const val VK_GROUP_URL = "https://vk.com/myfermaapp"
 private const val VK_CHANNEL_URL = "https://vk.ru/im/channels/-239980765"
+private const val TELEGRAM_URL = "https://t.me/my_ferma_app"
 
 /** Как группа пишется в тексте: без схемы, как её произносят. */
 private const val VK_GROUP_LABEL = "vk.com/myfermaapp"
+
+/** Telegram-канал, в отличие от ВК-канала, адрес имеет произносимый — его и показываем. */
+private const val TELEGRAM_LABEL = "t.me/my_ferma_app"
 
 /**
  * У канала адреса, который можно произнести, нет: «vk.ru/im/channels/-239980765» никто
@@ -143,6 +147,10 @@ fun AboutScreen(
             onChannel = {
                 Analytics.report(Events.OPEN_TG_CHANNEL)
                 openUrl(context, VK_CHANNEL_URL)
+            },
+            onTelegram = {
+                Analytics.report(Events.OPEN_TELEGRAM)
+                openUrl(context, TELEGRAM_URL)
             },
         )
 
@@ -367,18 +375,23 @@ private fun FeedbackCard(onWrite: () -> Unit, onJoin: () -> Unit) {
 }
 
 /**
- * Все три адреса строками.
+ * Все четыре адреса строками.
  *
  * Почта и группа дублируют кнопки выше не по недосмотру: кнопка ведёт в почтовое
  * приложение, а адрес нужен и тем, кто пишет с другого устройства, — увидеть его
- * глазами больше негде. Канал кнопки не имеет, и эта строка — единственный путь к нему.
+ * глазами больше негде. Каналы кнопок не имеют, и эти строки — единственный путь к ним.
  */
 @Composable
-private fun ContactsCard(onEmail: () -> Unit, onVk: () -> Unit, onChannel: () -> Unit) {
+private fun ContactsCard(
+    onEmail: () -> Unit,
+    onVk: () -> Unit,
+    onChannel: () -> Unit,
+    onTelegram: () -> Unit,
+) {
     TabCard {
         CardHeader(
             title = "Контакты",
-            subtitle = "Почта, группа и канал — все три ведут к разработчику",
+            subtitle = "Почта, группа и каналы — все ведут к разработчику",
         )
         Spacer(Modifier.height(16.dp))
 
@@ -405,6 +418,15 @@ private fun ContactsCard(onEmail: () -> Unit, onVk: () -> Unit, onChannel: () ->
             description = VK_CHANNEL_LABEL,
             onClick = onChannel,
             trailing = { MenuIcon(R.drawable.baseline_campaign_24) },
+        )
+
+        MenuRowDivider()
+
+        MenuRow(
+            title = "Канал в Telegram",
+            description = TELEGRAM_LABEL,
+            onClick = onTelegram,
+            trailing = { MenuIcon(R.drawable.baseline_send_24) },
         )
 
         Spacer(Modifier.height(16.dp))

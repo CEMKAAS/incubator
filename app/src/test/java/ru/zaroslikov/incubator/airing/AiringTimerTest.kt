@@ -58,7 +58,6 @@ class AiringTimerTest {
         settled as AiringTimerState.Done
         assertEquals(15, settled.minutes)
         assertFalse("звенеть спустя срок незачем", settled.ringing)
-        assertFalse("результат ещё никто не забрал", settled.taken)
         assertEquals(target, settled.target)
     }
 
@@ -69,17 +68,17 @@ class AiringTimerTest {
     }
 
     @Test
-    fun `a taken result leaves once the melody stops, a stale one leaves by ttl`() {
+    fun `a silent result keeps waiting for the measurement until the ttl`() {
         val done = AiringTimerState.Done(
             id = start, target = target, label = "", startedAt = start,
-            endAt = start + 15 * MINUTE_MILLIS, minutes = 15, ringing = true, taken = true,
+            endAt = start + 15 * MINUTE_MILLIS, minutes = 15, ringing = true,
         )
-        // Забран, но ещё звенит — остаётся, форме нужно показать «Готово».
+        // Звенит — остаётся, форме нужно показать «Готово».
         assertEquals(done, done.settled(done.endAt + 1_000L))
-        // Смолк и забран — покой.
-        assertEquals(AiringTimerState.Idle, done.copy(ringing = false).settled(done.endAt + 1_000L))
-        // Не забран, не звенит — ждёт форму…
-        val waiting = done.copy(ringing = false, taken = false)
+        // Смолк — всё равно ждёт: минуты уходят только с записью замера. Именно это
+        // держит их для формы, пересозданной переходом по уведомлению.
+        val waiting = done.copy(ringing = false)
+        assertEquals(waiting, waiting.settled(done.endAt + 1_000L))
         assertEquals(waiting, waiting.settled(done.endAt + RESULT_TTL_MILLIS))
         // …но не дольше срока.
         assertEquals(AiringTimerState.Idle, waiting.settled(done.endAt + RESULT_TTL_MILLIS + 1L))
@@ -91,15 +90,14 @@ class AiringTimerTest {
     fun `a ringing flag outlives nobody - it expires with the melody`() {
         val ringing = AiringTimerState.Done(
             id = start, target = target, label = "", startedAt = start,
-            endAt = start + 15 * MINUTE_MILLIS, minutes = 15, ringing = true, taken = false,
+            endAt = start + 15 * MINUTE_MILLIS, minutes = 15, ringing = true,
         )
         // Пока срок мелодии не вышел — звенит.
         assertEquals(ringing, ringing.settled(ringing.endAt + RING_TIMEOUT_MILLIS))
-        // Процесс умер во время мелодии: поднятая заново служба не должна заиграть снова.
+        // Процесс умер во время мелодии: поднятая заново служба не должна заиграть снова,
+        // а минуты — остаются для формы.
         val silent = ringing.settled(ringing.endAt + RING_TIMEOUT_MILLIS + 1L)
         assertEquals(ringing.copy(ringing = false), silent)
-        // А забранный и отзвеневший — сразу в покой.
-        assertEquals(AiringTimerState.Idle, ringing.copy(taken = true).settled(ringing.endAt + RING_TIMEOUT_MILLIS + 1L))
     }
 
     @Test
@@ -109,7 +107,7 @@ class AiringTimerTest {
             running(20),
             AiringTimerState.Done(
                 id = start, target = AiringTimerTarget(9), label = "Блиц", startedAt = start,
-                endAt = start + 100L, minutes = 4, ringing = true, taken = false,
+                endAt = start + 100L, minutes = 4, ringing = true,
             ),
         )
         states.forEach { state ->

@@ -67,6 +67,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -98,8 +99,23 @@ import ru.zaroslikov.incubator.ads.AdBannerAfter
 import ru.zaroslikov.incubator.ads.BannerAdHosts
 import ru.zaroslikov.incubator.ads.rememberBannerAdHost
 import ru.zaroslikov.incubator.ads.rememberBannerAdHosts
+import ru.zaroslikov.incubator.BuildConfig
+import ru.zaroslikov.incubator.InventoryApplication
 import ru.zaroslikov.incubator.analytics.Analytics
 import ru.zaroslikov.incubator.analytics.Events
+import ru.zaroslikov.incubator.domain.stats.HatchSummary
+import ru.zaroslikov.incubator.domain.stats.combined
+import ru.zaroslikov.incubator.rustore.IS_RUSTORE_BUILD
+import ru.zaroslikov.incubator.ui.batch.HatchCelebrationDialog
+import ru.zaroslikov.incubator.ui.batch.HatchSummariesSaver
+import ru.zaroslikov.incubator.calendar.CalendarOffer
+import ru.zaroslikov.incubator.farm.FarmApp
+import ru.zaroslikov.incubator.farm.FarmChicks
+import ru.zaroslikov.incubator.farm.FarmStatus
+import ru.zaroslikov.incubator.farm.farmChicksOf
+import ru.zaroslikov.incubator.ui.todayText
+import ru.zaroslikov.incubator.ui.batch.AddToCalendarDialog
+import ru.zaroslikov.incubator.ui.batch.CalendarOfferSaver
 import kotlinx.coroutines.launch
 import ru.zaroslikov.incubator.R
 import ru.zaroslikov.incubator.domain.incubation.SpeciesCatalog
@@ -114,6 +130,7 @@ import ru.zaroslikov.incubator.ui.batch.AddBatchSheet
 import ru.zaroslikov.incubator.ui.batch.BatchDetailSheet
 import ru.zaroslikov.incubator.ui.batch.airingTimerActive
 import ru.zaroslikov.incubator.ui.batch.FinishBatchHost
+import ru.zaroslikov.incubator.ui.batch.FinishGroupHost
 import ru.zaroslikov.incubator.ui.batch.StatusChip
 import ru.zaroslikov.incubator.ui.qr.IncubatorQrSheet
 import ru.zaroslikov.incubator.design.components.ChoiceChip
@@ -276,18 +293,81 @@ fun IncubatorScreen(
     // свои объекты, а `rememberSaveable` умеет хранить число, но не `Batch`.
     var editBatchId by rememberSaveable { mutableLongStateOf(0L) }
     var finishBatchId by rememberSaveable { mutableLongStateOf(0L) }
+    // Партия из нескольких пород, чей срок вышел разом, — один диалог на все её закладки
+    // (`FinishGroupHost`). Пустой массив — диалог закрыт. `LongArray`, потому что его
+    // `rememberSaveable` кладёт в `Bundle` как есть.
+    var finishGroupIds by rememberSaveable { mutableStateOf(LongArray(0)) }
     // Кто открыл диалоги завершения: пункт «Убрать в архив» — и тогда закладка тем же
     // сохранением уходит в архив, — или подсказка «Инкубация завершена», которой нужен
     // только итог. Диалоги одни и те же, разное у них лишь это.
     var finishHides by rememberSaveable { mutableStateOf(false) }
     var pendingDeleteId by rememberSaveable { mutableLongStateOf(0L) }
+    // Поздравление с выводом — салют и краткий итог, `HatchCelebrationDialog`. Пустой
+    // список — закрыто; иначе сводки только что завершённых закладок (одна или партия
+    // пород). `rememberSaveable` со своим `Saver`: поворот экрана не должен гасить
+    // праздник, а сводка после записи больше ниоткуда не приедет.
+    var celebration by rememberSaveable(stateSaver = HatchSummariesSaver) {
+        mutableStateOf(emptyList<HatchSummary>())
+    }
+    // Одна точка на три пути завершения в срок: сюда приходит сводка из шторки
+    // закладки, из хоста диалогов меню карточки и из партии. Только с птенцами: у
+    // прерванной сводки нет по построению, а партия с одними нулями не праздник.
+    val context = LocalContext.current
+    val celebrate:(List<HatchSummary>) -> Unit = { summaries ->
+        val hatched = summaries.sumOf { it.hatched }
+        if (hatched > 0) {
+            Analytics.report(
+                Events.HATCH_CELEBRATED,
+                mapOf(
+                    "Птенцов" to hatched,
+                    "Закладок" to summaries.size,
+                    "Вывод, %" to summaries.combined().rate,
+                    "Хозяйство" to when (FarmApp.status(context)) {
+                        FarmStatus.Ready -> "принимает"
+                        FarmStatus.Outdated -> "старая версия"
+                        FarmStatus.Absent -> "нет"
+                    },
+                ),
+            )
+            celebration = summaries
+        }
+    }
+    // «Моё хозяйство» спрашивается на каждом возврате в приложение, а не раз на экран:
+    // его ставят и обновляют из магазина, и вернувшийся оттуда должен сразу увидеть
+    // «Добавить» — в поздравлении, не закрывая его, и в меню завершённой закладки.
+    var farmCheck by remember { mutableIntStateOf(0) }
+    LifecycleResumeEffect(Unit) {
+        farmCheck++
+        onPauseOrDispose { }
+    }
+    val farmStatus = remember(farmCheck) { FarmApp.status(context) }
+    // Открывает форму хозяйства; `false` — не вышло (его удалили между проверкой и
+    // нажатием). Один путь для поздравления и для меню карточки, «Откуда» их различает.
+    val sendToFarm: (FarmChicks, String) -> Boolean = { chicks, origin ->
+        FarmApp.send(context, chicks).also { opened ->
+            if (opened) {
+                Analytics.report(
+                    Events.FARM_CHICKS_SENT,
+                    mapOf("Птенцов" to chicks.count, "Вид" to chicks.type, "Откуда" to origin),
+                )
+            }
+        }
+    }
+    // «В «Моё хозяйство»» из меню карточки, когда стоящее хозяйство птенцов не принимает:
+    // вопрос «обновить?» вместо ссылки, которую оно проигнорирует.
+    var farmUpdateAsked by rememberSaveable { mutableStateOf(false) }
     // «Экспортировать» из меню карточки: сперва диалог «куда», потом системное окно.
     // Идентификатор, как и у остальных, — закладку ищем в списке заново в момент записи.
     var exportBatchId by rememberSaveable { mutableLongStateOf(0L) }
+    // Важные даты только что заложенной закладки — вопрос «добавить в календарь?».
+    // `rememberSaveable` со своим `Saver`, как и поздравление: поворот не должен молча
+    // снимать вопрос, а даты после записи закладки больше ниоткуда не приедут.
+    var calendarOffer by rememberSaveable(stateSaver = CalendarOfferSaver) {
+        mutableStateOf<CalendarOffer?>(null)
+    }
     // Итог экспорта — поле того же состояния экрана: его источник, контроллер из
     // `AppContainer`, входит в `combine` внутри ViewModel, и второй подписки ему не нужно.
     val scheduleTransfer = uiState.scheduleTransfer
-    val context = LocalContext.current
     // Подсказку «Инкубация завершена» показываем один раз за заход на экран: ответив
     // «Позже», её незачем видеть до следующего открытия инкубатора. `rememberSaveable`,
     // чтобы поворот экрана не считался новым заходом.
@@ -350,12 +430,15 @@ fun IncubatorScreen(
             incubatorId = viewModel.incubatorId,
             draft = batchFormDraft,
             onDismiss = { showAddBatchSheet = false },
-            onSaved = { batchIds ->
+            onSaved = { batchIds, calendar ->
                 showAddBatchSheet = false
                 Analytics.report(Events.OPEN_ADD_BATCH)
                 // Одна закладка открывается сразу; несколько — нет: какую из них, форма
                 // не знает, а список уже показывает их все.
                 detailBatchId = batchIds.singleOrNull() ?: 0L
+                // Вопрос о календаре встаёт поверх открытой закладки: даты — её, и,
+                // ответив, человек оказывается ровно там, куда шёл.
+                calendarOffer = calendar
             },
         )
     }
@@ -369,6 +452,7 @@ fun IncubatorScreen(
             draft = batchDetailDraft,
             onDismiss = { detailBatchId = 0L },
             readOnly = uiState.readOnly,
+            onHatched = { celebrate(listOf(it)) },
         )
     }
 
@@ -402,7 +486,7 @@ fun IncubatorScreen(
             batchId = editBatchId,
             draft = batchFormDraft,
             onDismiss = { editBatchId = 0L },
-            onSaved = { editBatchId = 0L },
+            onSaved = { _, _ -> editBatchId = 0L },
         )
     }
 
@@ -414,8 +498,71 @@ fun IncubatorScreen(
         FinishBatchHost(
             batchId = finishBatchId,
             onDismiss = { finishBatchId = 0L },
-            onFinished = { finishBatchId = 0L },
+            onFinished = { hatched ->
+                finishBatchId = 0L
+                hatched?.let { celebrate(listOf(it)) }
+            },
             hide = finishHides,
+        )
+    }
+
+    if (finishGroupIds.isNotEmpty()) {
+        FinishGroupHost(
+            incubatorId = viewModel.incubatorId,
+            batchIds = finishGroupIds.toList(),
+            onDismiss = { finishGroupIds = LongArray(0) },
+            onFinished = { summaries ->
+                finishGroupIds = LongArray(0)
+                celebrate(summaries)
+            },
+        )
+    }
+
+    // Поздравление стоит над списком, где завершённую карточку уже видно, — диалог
+    // экрана, а не шторки: та к этому моменту закрыта. Когда его закрывают («Отлично»,
+    // тап мимо или «назад») — единственная просьба оценить приложение: закладка
+    // доведена до срока и птенцы посчитаны, это та самая минута, когда есть чему
+    // радоваться (`ReviewController`). После поздравления, а не до: окно RuStore поверх
+    // салюта было бы окном поверх праздника. Только в сборке для RuStore и не чаще раза
+    // на версию — оба правила не здесь.
+    calendarOffer?.let { offer ->
+        AddToCalendarDialog(offer = offer, onDone = { calendarOffer = null })
+    }
+
+    if (celebration.isNotEmpty()) {
+        val farm = remember(celebration) {
+            val today = todayText()
+            celebration.mapNotNull { farmChicksOf(it, today) }
+        }
+        HatchCelebrationDialog(
+            summaries = celebration,
+            farm = farm,
+            farmStatus = farmStatus,
+            onUpdateFarm = {
+                if (FarmApp.openStorePage(context)) {
+                    Analytics.report(Events.FARM_UPDATE_OPENED, mapOf("Откуда" to FARM_FROM_CELEBRATION))
+                }
+            },
+            onSendToFarm = { chicks -> sendToFarm(chicks, FARM_FROM_CELEBRATION) },
+            onDismiss = {
+                celebration = emptyList()
+                if (IS_RUSTORE_BUILD) {
+                    (context.applicationContext as InventoryApplication).container.review
+                        .offerAfterHatch(BuildConfig.VERSION_CODE)
+                }
+            },
+        )
+    }
+
+    if (farmUpdateAsked) {
+        FarmUpdateDialog(
+            onDismiss = { farmUpdateAsked = false },
+            onUpdate = {
+                farmUpdateAsked = false
+                if (FarmApp.openStorePage(context)) {
+                    Analytics.report(Events.FARM_UPDATE_OPENED, mapOf("Откуда" to FARM_FROM_CARD))
+                }
+            },
         )
     }
 
@@ -429,24 +576,26 @@ fun IncubatorScreen(
     // В архивном инкубаторе её нет вовсе: подсказка зовёт внести итог, то есть завершить
     // закладку, а это ровно то изменение, которого архивный режим не допускает.
     val overlayOpen = showEditSheet || showAddBatchSheet || showMeasurementSheet || showQrSheet ||
-            detailBatchId != 0L || editBatchId != 0L || finishBatchId != 0L ||
-            pendingDeleteId != 0L
+            detailBatchId != 0L || editBatchId != 0L || finishBatchId != 0L || finishGroupIds.isNotEmpty() ||
+            pendingDeleteId != 0L || celebration.isNotEmpty() || calendarOffer != null || farmUpdateAsked
     // Разбор дат — по ответу базы, сверка с часами — на каждую перерисовку. Тело экрана
     // перерисовывается на каждое открытие и закрытие шторки (девять состояний ниже), и
     // раньше каждая такая перерисовка заново разбирала даты всех закладок инкубатора.
     val finishMoments = remember(uiState.batches, uiState.catalog) {
         dueMoments(uiState.batches, uiState.catalog)
     }
+    // Не одна закладка, а партия: лоток из двух пород лежит двумя закладками, и срок у них
+    // выходит в одну минуту. Спросить только про первую значило бы оставить вторую до
+    // следующего захода — после «Внести птенцов» подсказка гаснет.
     val due = if (finishPromptDismissed || overlayOpen || uiState.readOnly) {
         null
     } else {
-        val now = Date()
-        finishMoments.firstOrNull { !it.finishedAt.after(now) }
+        groupDueToFinish(finishMoments, Date())
     }
 
-    due?.let { (batch, finishedAt) ->
+    due?.let { (batches, finishedAt) ->
         FinishedBatchPrompt(
-            batch = batch,
+            batches = batches,
             finishedAt = finishedAt,
             catalog = uiState.catalog,
             onLater = { finishPromptDismissed = true },
@@ -457,7 +606,13 @@ fun IncubatorScreen(
                 // Без архива: подсказка спрашивает итог, а не убирает закладку с глаз —
                 // только что внесённый вывод логичнее увидеть в списке.
                 finishHides = false
-                finishBatchId = batch.id
+                // Одна закладка — прежние два диалога; партия — один на все породы,
+                // где любую можно оставить пустой и внести позже.
+                if (batches.size == 1) {
+                    finishBatchId = batches.single().id
+                } else {
+                    finishGroupIds = batches.map { it.id }.toLongArray()
+                }
             },
         )
     }
@@ -634,6 +789,16 @@ fun IncubatorScreen(
                         onReopenBatch = { viewModel.onIntent(IncubatorIntent.UnarchiveBatch(it)) },
                         onDeleteBatch = { pendingDeleteId = it.id },
                         onExportBatch = { exportBatchId = it.id },
+                        onSendToFarm = when (farmStatus) {
+                            FarmStatus.Absent -> null
+                            FarmStatus.Outdated -> { _ -> farmUpdateAsked = true }
+                            FarmStatus.Ready -> { batch ->
+                                val chicks = farmChicksOf(batch, todayText())
+                                // Не открылось — хозяйство удалили между проверкой и
+                                // нажатием: спрашиваем заново, и пункт уйдёт из меню.
+                                if (chicks != null && !sendToFarm(chicks, FARM_FROM_CARD)) farmCheck++
+                            }
+                        },
                         onAddBatch = { showAddBatchSheet = true },
                         // Замер по инкубатору есть только пока есть кому его записать:
                         // без идущих закладок под списком стоит прежняя «Добавить
@@ -916,6 +1081,11 @@ private fun BatchesTab(
     onReopenBatch: (Batch) -> Unit,
     onDeleteBatch: (Batch) -> Unit,
     onExportBatch: (Batch) -> Unit,
+    /**
+     * «В «Моё хозяйство»» у завершённой закладки с птенцами. `null` — хозяйства на
+     * телефоне нет, и пункта нет ни у одной карточки.
+     */
+    onSendToFarm: ((Batch) -> Unit)?,
     onAddBatch: () -> Unit,
     /**
      * «Внести замер» — замер по всему инкубатору. `null`, когда идущих закладок нет:
@@ -1097,6 +1267,7 @@ private fun BatchesTab(
                             onReopen = { onReopenBatch(batch) },
                             onDelete = { onDeleteBatch(batch) },
                             onExport = { onExportBatch(batch) },
+                            onSendToFarm = onSendToFarm?.let { send -> { send(batch) } },
                             readOnly = readOnly,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1460,6 +1631,8 @@ private fun BatchCard(
     onReopen: () -> Unit,
     onDelete: () -> Unit,
     onExport: () -> Unit,
+    /** Хозяйство на телефоне есть; пункт появится, только если у закладки есть птенцы. */
+    onSendToFarm: (() -> Unit)?,
     /** Инкубатор в архиве: карточка остаётся, троеточия у неё нет. */
     readOnly: Boolean = false,
     modifier: Modifier = Modifier,
@@ -1625,8 +1798,10 @@ private fun BatchCard(
             // все четыре его действия — правка, завершение, архив и удаление — меняют
             // закладку, и открывать пустое меню незачем. Исключение одно — экспорт: он
             // закладку читает, а не меняет, и архив устройства ему не помеха; у удачной
-            // закладки архивного инкубатора меню остаётся из одного этого пункта.
-            if (!readOnly || batch.exportable) {
+            // закладки архивного инкубатора меню остаётся из одного этого пункта. Второе
+            // такое же — «В «Моё хозяйство»»: оно тоже только читает закладку.
+            val farmOffer = onSendToFarm?.takeIf { farmChicksOf(batch, "") != null }
+            if (!readOnly || batch.exportable || farmOffer != null) {
                 BatchCardMenu(
                     isFinished = isFinished,
                     isHidden = batch.hidden,
@@ -1639,6 +1814,7 @@ private fun BatchCard(
                     onDelete = onDelete,
                     canExport = batch.exportable,
                     onExport = onExport,
+                    onSendToFarm = farmOffer,
                     // Те же 16/8 dp, что и раньше: у кнопки свои 12 dp вокруг иконки,
                     // поэтому справа их 8, иначе троеточие отошло бы от края дальше
                     // остального. Ставит её ровно туда, где она стояла в строке.
@@ -1671,12 +1847,17 @@ private fun BatchCard(
  * закладки — это её режим, предлагаемый как образец, а образцом бывает только то, что
  * сработало. У остальных пункта нет вовсе, а не неактивен: неактивный обещал бы, что
  * когда-нибудь появится, а у прерванной закладки не появится никогда.
+ *
+ * «В «Моё хозяйство»» — то же, что кнопка в поздравлении, для закладки, завершённой
+ * раньше: поздравление закрыли, хозяйство поставили позже, выбор в нём смахнули. Только у
+ * доведённой до срока закладки с птенцами и только когда хозяйство на телефоне есть; при
+ * старой его версии пункт остаётся и спрашивает, обновить ли, — как поздравление.
  */
 @Composable
 private fun BatchCardMenu(
     isFinished: Boolean,
     isHidden: Boolean,
-    /** Архивный инкубатор: из пунктов остаётся только экспорт — единственный, что читает. */
+    /** Архивный инкубатор: остаются только пункты, что закладку читают, — экспорт и хозяйство. */
     readOnly: Boolean,
     onEdit: () -> Unit,
     onFinish: () -> Unit,
@@ -1686,6 +1867,8 @@ private fun BatchCardMenu(
     onDelete: () -> Unit,
     canExport: Boolean,
     onExport: () -> Unit,
+    /** «В «Моё хозяйство»»; `null` — пункта нет (хозяйства нет или птенцов нет). */
+    onSendToFarm: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -1704,14 +1887,29 @@ private fun BatchCardMenu(
             containerColor = DesignPalette.Surface,
             shape = RoundedCornerShape(16.dp),
         ) {
-            if (readOnly) {
-                BatchMenuItem(
-                    text = "Экспортировать расписание",
-                    icon = R.drawable.baseline_share_24,
-                ) {
-                    expanded = false
-                    onExport()
+            val farmItem: @Composable () -> Unit = {
+                if (onSendToFarm != null) {
+                    BatchMenuItem(
+                        text = "В «Моё хозяйство»",
+                        icon = R.drawable.baseline_cottage_24,
+                    ) {
+                        expanded = false
+                        onSendToFarm()
+                    }
                 }
+            }
+
+            if (readOnly) {
+                if (canExport) {
+                    BatchMenuItem(
+                        text = "Экспортировать расписание",
+                        icon = R.drawable.baseline_share_24,
+                    ) {
+                        expanded = false
+                        onExport()
+                    }
+                }
+                farmItem()
                 return@DropdownMenu
             }
 
@@ -1769,6 +1967,7 @@ private fun BatchCardMenu(
                     onExport()
                 }
             }
+            farmItem()
 
             HorizontalDivider(thickness = 0.8.dp, color = DesignPalette.CardBorder)
             BatchMenuItem(
@@ -1801,6 +2000,45 @@ private fun BatchMenuItem(
             )
         },
         onClick = onClick,
+    )
+}
+
+/** «Откуда» у событий «Моего хозяйства»: из поздравления или из меню карточки. */
+private const val FARM_FROM_CELEBRATION = "поздравление"
+private const val FARM_FROM_CARD = "карточка"
+
+/**
+ * «В «Моё хозяйство»» из меню карточки, когда стоящая версия хозяйства птенцов не
+ * принимает. Вопрос, а не молчание: пункт виден потому, что хозяйство на телефоне есть, и
+ * нажатие без ответа читалось бы как поломка — так уже было с кнопкой в поздравлении.
+ */
+@Composable
+private fun FarmUpdateDialog(
+    onDismiss: () -> Unit,
+    onUpdate: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "Обновите «Моё хозяйство»", style = DesignType.SectionTitle) },
+        text = {
+            Text(
+                text = "Ваша версия «Моего хозяйства» ещё не умеет принимать птенцов. " +
+                    "Обновите её и снова выберите «В «Моё хозяйство»» в меню закладки.",
+                style = DesignType.Body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onUpdate) {
+                Text(text = "Обновить", color = DesignPalette.Accent)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "Позже", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.background,
     )
 }
 

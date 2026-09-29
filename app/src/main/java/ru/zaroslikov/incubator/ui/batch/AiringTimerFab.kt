@@ -69,7 +69,12 @@ internal fun AiringTimerFab(
     onOpen: (AiringTimerTarget) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val visible = !hidden && state !is AiringTimerState.Idle
+    // Результат ждёт записи замера до двух часов, но плавающее кольцо ему на всё это время
+    // не нужно: оно о том, что происходит сейчас, — идёт отсчёт или звенит мелодия.
+    // Смолкший результат ждёт в карточке формы.
+    val active = state is AiringTimerState.Running ||
+        (state is AiringTimerState.Done && state.ringing)
+    val visible = !hidden && active
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn() + scaleIn(initialScale = 0.6f),

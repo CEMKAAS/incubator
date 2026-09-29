@@ -1,18 +1,34 @@
 package ru.zaroslikov.incubator.ui.incubator
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import ru.zaroslikov.incubator.domain.incubation.SpeciesCatalog
 import ru.zaroslikov.incubator.domain.model.Batch
-import ru.zaroslikov.incubator.ui.batch.eggsWord
+import ru.zaroslikov.incubator.ui.batch.baseBatchTitle
+import ru.zaroslikov.incubator.ui.start.speciesEmoji
 import ru.zaroslikov.incubator.design.components.FormSpacer
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
@@ -95,6 +111,48 @@ internal fun dueMoments(batches: List<Batch>, catalog: SpeciesCatalog): List<Due
     .sortedBy { it.finishedAt.time }
 
 /**
+ * Закладки, ждущие итога вместе: одна партия, заложенная на несколько пород.
+ *
+ * Форма закладки кладёт лоток из двух пород двумя закладками (см. корневой `CLAUDE.md`,
+ * «A batch holds one species and one breed»), и срок у них выходит в одну и ту же
+ * минуту. Спрашивать их по одной значило бы показать подсказку про одну породу, а про
+ * вторую — только при следующем заходе: после «Внести птенцов» подсказка гаснет до
+ * ухода с экрана. Человек же закладывал одну партию и итог вносит по ней целиком.
+ */
+internal data class DueGroup(val batches: List<Batch>, val finishedAt: Date)
+
+/**
+ * Какая партия ждёт итога прямо сейчас: самая давняя просроченная закладка и все, что
+ * заложены вместе с ней ([laidTogether]).
+ *
+ * Порядок внутри — по идентификатору, то есть в том, в каком строки пород стояли в форме.
+ */
+internal fun groupDueToFinish(moments: List<DueBatch>, now: Date = Date()): DueGroup? {
+    val first = moments.firstOrNull { !it.finishedAt.after(now) } ?: return null
+    val batches = moments
+        .filter { !it.finishedAt.after(now) && laidTogether(it.batch, first.batch) }
+        .map { it.batch }
+        .sortedBy { it.id }
+    return DueGroup(batches, first.finishedAt)
+}
+
+/**
+ * Заложены ли две закладки одним нажатием «Заложить N закладок».
+ *
+ * Отдельного признака партии в базе нет, и заводить его ради этого вопроса незачем:
+ * у таких закладок общие вид, дата и час закладки и название до хвоста с породой
+ * ([baseBatchTitle]) — всё это форма копирует в каждую. Две закладки одного вида,
+ * заложенные в один час под разными названиями, партией не считаются: «Для себя» и
+ * «На продажу» — это разные решения, и объединять их итог было бы самоуправством.
+ */
+internal fun laidTogether(a: Batch, b: Batch): Boolean =
+    a.incubatorId == b.incubatorId &&
+        a.type == b.type &&
+        a.data == b.data &&
+        a.time == b.time &&
+        baseBatchTitle(a.title, a.breed) == baseBatchTitle(b.title, b.breed)
+
+/**
  * Сама подсказка.
  *
  * Двухшаговая — сперва сообщение, и только по кнопке форма итога — намеренно: экран
@@ -106,30 +164,42 @@ internal fun dueMoments(batches: List<Batch>, catalog: SpeciesCatalog): List<Due
  */
 @Composable
 internal fun FinishedBatchPrompt(
-    batch: Batch,
+    batches: List<Batch>,
     finishedAt: Date,
     catalog: SpeciesCatalog,
     onLater: () -> Unit,
     onEnterChicks: () -> Unit,
 ) {
-    val name = batch.title.ifBlank { batch.type }
+    val batch = batches.first()
+    val several = batches.size > 1
+    // У партии из нескольких пород имя общее — то, что стояло в форме до хвоста с
+    // породой; у одной закладки — её собственное.
+    val name = (if (several) baseBatchTitle(batch.title, batch.breed) else batch.title)
+        .ifBlank { batch.type }
     val total = catalog.incubationDays(batch.type)
 
     AlertDialog(
         onDismissRequest = onLater,
         title = { Text(text = "Инкубация завершена", style = DesignType.SectionTitle) },
         text = {
-            Column {
+            // Три слоя, и у каждого свой голос: факт (срок вышел, когда), то, о чём
+            // спрашивают (закладки — карточкой, как в списке), и пояснение курсивом
+            // (`DesignType.Note`), которое читают один раз. Одним абзацем всё это
+            // сливалось, и глазу было не за что зацепиться.
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                // Срок и момент — двумя строками: «истёк …» с датой и часом длиннее
+                // половины строки и, дописанный следом, рвался посередине даты.
+                if (total != null) {
+                    Text(
+                        text = "Срок инкубации — ${plural(total, "день", "дня", "дней")}",
+                        style = DesignType.Body,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Text(
                     text = buildAnnotatedString {
-                        append("«$name»")
-                        if (total != null) {
-                            append(" — срок инкубации, $total ${daysWord(total)},")
-                        } else {
-                            append(" — срок инкубации")
-                        }
-                        append(" истёк ")
-                        withStyle(SpanStyle(color = DesignPalette.Accent)) {
+                        append(if (total != null) "Истёк " else "Срок инкубации истёк ")
+                        withStyle(SpanStyle(color = DesignPalette.Accent, fontWeight = FontWeight.Medium)) {
                             append(finishedAtText(finishedAt, batch.time))
                         }
                         append(".")
@@ -138,19 +208,27 @@ internal fun FinishedBatchPrompt(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                FormSpacer(10.dp)
-                Text(
-                    text = "Внесите, сколько птенцов вывелось из " +
-                        "${batch.eggAll} ${eggsWord(batch.eggAll)}: закладка уйдёт в архив " +
-                        "с итогом и попадёт в средний вывод инкубатора.",
-                    style = DesignType.Body,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                FormSpacer(12.dp)
+                DueBatchesCard(name = name, batches = batches, several = several)
 
-                FormSpacer(10.dp)
+                FormSpacer(12.dp)
                 Text(
-                    text = "Если вывод ещё идёт — «Позже»: закладка останется в работе.",
-                    style = DesignType.Caption,
+                    text = if (several) "Внесите, сколько птенцов вывелось по каждой породе."
+                    else "Внесите, сколько птенцов вывелось.",
+                    style = DesignType.Body,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                FormSpacer(6.dp)
+                Text(
+                    text = if (several) {
+                        "Закладки уйдут в архив с итогом и попадут в средний вывод инкубатора. " +
+                            "Если вывод ещё идёт — «Позже»; породу без итога можно оставить " +
+                            "пустой и внести позже."
+                    } else {
+                        "Закладка уйдёт в архив с итогом и попадёт в средний вывод инкубатора. " +
+                            "Если вывод ещё идёт — «Позже»: закладка останется в работе."
+                    },
+                    style = DesignType.Note,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -167,6 +245,82 @@ internal fun FinishedBatchPrompt(
         },
         containerColor = MaterialTheme.colorScheme.background,
     )
+}
+
+/**
+ * Закладки, о которых спрашивают, — карточкой, а не перечислением внутри фразы.
+ *
+ * Та же белая карточка с тонкой рамкой, что и в списке инкубатора: закладку узнают по
+ * её виду. У партии сверху её общее название и вид, строки — породы с числом яиц; у
+ * одной закладки строка одна — название, под ним вид и порода.
+ */
+@Composable
+private fun DueBatchesCard(name: String, batches: List<Batch>, several: Boolean) {
+    val batch = batches.first()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(DesignPalette.Surface)
+            .border(0.8.dp, DesignPalette.CardBorder, RoundedCornerShape(16.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        if (several) {
+            Text(
+                text = "${speciesEmoji(batch.type)} $name · ${batch.type}",
+                style = DesignType.CaptionEmphasis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            batches.forEach { part ->
+                FormSpacer(6.dp)
+                DueBatchRow(
+                    title = part.breed.ifBlank { part.title.ifBlank { part.type } },
+                    subtitle = null,
+                    eggs = part.eggAll,
+                )
+            }
+        } else {
+            DueBatchRow(
+                title = "${speciesEmoji(batch.type)} $name",
+                subtitle = listOf(batch.type, batch.breed).filter { it.isNotBlank() }
+                    .distinct().joinToString(" · ").ifBlank { null },
+                eggs = batch.eggAll,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DueBatchRow(title: String, subtitle: String?, eggs: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = DesignType.ListItemTitle,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = DesignType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = plural(eggs, "яйцо", "яйца", "яиц"),
+            style = DesignType.MonoEmphasis,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+    }
 }
 
 // --- Время и склонения ------------------------------------------------------------------------

@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
@@ -32,18 +33,24 @@ private val ChoiceChipHeight = 34.dp
  * понадобился «Настройкам» — градусы и валюта. Один чип на оба места, а не копия:
  * два способа сказать «выбрано» в одном приложении читались бы как два разных действия.
  * Значок необязателен — у фильтра он есть только у «Архива».
+ *
+ * **Подпись всегда в одну строку**, а не влезла — кончается многоточием: высота чипа
+ * фиксирована, и перенесённая вторая строка просто обрезалась бы по краю «таблетки». Чтобы
+ * многоточию было где появиться, ряд, в котором стоят чипы, отдаёт им ширину через
+ * [modifier] — например `Modifier.weight(1f, fill = false)`.
  */
 @Composable
 fun ChoiceChip(
     text: String,
     selected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     @DrawableRes icon: Int? = null,
 ) {
     val shape = RoundedCornerShape(50)
     val content = if (selected) DesignPalette.OnAccent else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
-        modifier = Modifier
+        modifier = modifier
             .height(ChoiceChipHeight)
             .clip(shape)
             .background(if (selected) DesignPalette.Accent else DesignPalette.Surface)
@@ -64,6 +71,13 @@ fun ChoiceChip(
             )
             Spacer(Modifier.size(6.dp))
         }
-        Text(text = text, style = DesignType.CaptionEmphasis, color = content)
+        Text(
+            text = text,
+            style = DesignType.CaptionEmphasis,
+            color = content,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

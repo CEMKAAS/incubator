@@ -1,6 +1,7 @@
 package ru.zaroslikov.incubator.ui.batch
 
 import android.net.Uri
+import ru.zaroslikov.incubator.calendar.CalendarOffer
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
@@ -213,7 +214,7 @@ fun AddBatchSheet(
     incubatorId: Long,
     draft: SheetDraft,
     onDismiss: () -> Unit,
-    onSaved: (List<Long>) -> Unit,
+    onSaved: (ids: List<Long>, calendar: CalendarOffer?) -> Unit,
     batchId: Long = 0,
     viewModel: AddBatchViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
@@ -239,7 +240,7 @@ fun AddBatchSheet(
         when (effect) {
             is AddBatchEffect.Saved -> {
                 draft.discard()
-                onSaved(effect.ids)
+                onSaved(effect.ids, effect.calendar)
             }
         }
     }

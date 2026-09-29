@@ -234,7 +234,7 @@ fun incubatorFinance(incubatorPrice: Int, batches: List<Batch>): IncubatorFinanc
     }
 
     val rows = batches
-        .map { financeOf(it) }
+        .map { batchFinanceOf(it) }
         // Идущие сверху — их деньги ещё в работе и интересны раньше прошлогодних;
         // завершённые дальше, свежие раньше старых. Дата — текст «dd.MM.yyyy»,
         // сортировать его как строку нельзя, поэтому пересобираем в ISO.
@@ -266,7 +266,12 @@ fun incubatorFinance(incubatorPrice: Int, batches: List<Batch>): IncubatorFinanc
     )
 }
 
-private fun financeOf(batch: Batch): BatchFinance {
+/**
+ * Деньги одной закладки — строка «Финансов». Открыта наружу ради [hatchSummaryOf]:
+ * поздравление после вывода печатает вложения и выручку, и считать их должно то же
+ * место, что и вкладка, иначе через минуту та назовёт другую сумму.
+ */
+fun batchFinanceOf(batch: Batch): BatchFinance {
     val finished = batch.status != BatchStatus.Active
     val eggPrice = eggPriceOf(batch)
     val chickPrice = chickPriceOf(batch)

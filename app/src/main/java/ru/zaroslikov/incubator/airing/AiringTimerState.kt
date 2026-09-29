@@ -19,13 +19,17 @@ data class AiringTimerTarget(val incubatorId: Long, val batchId: Long = 0L) {
  * и двух крышек разом человек не держит — а уведомление со счётчиком и мелодия у таймера
  * одни, второго рядом с ними нечем показать.
  *
- * Три состояния, и у третьего два флага. [Done.ringing] — мелодия ещё играет: её гасит
- * «Готово» в форме, «Закрыл инкубатор» в уведомлении или срок [RING_TIMEOUT_MILLIS].
- * [Done.taken] — минуты уже записаны в поле формы: форма могла быть закрыта, когда таймер
- * кончился, и результат ждёт её, пока она не откроется — но не дольше [RESULT_TTL_MILLIS],
- * иначе вчерашние минуты легли бы в сегодняшний замер.
+ * Три состояния. [Done.ringing] — мелодия ещё играет: её гасит «Готово» в форме,
+ * «Закрыл инкубатор» в уведомлении или срок [RING_TIMEOUT_MILLIS].
  *
- * [id] — момент запуска: по нему форма отличает результат, который уже забрала, от нового.
+ * **Результат ([Done]) живёт, пока замер не записан**, — а не пока его не подставили в
+ * поле. Подставить его может любая форма, открытая на его цель, и не один раз: форма,
+ * открытая до того, как свернули приложение, подставляет минуты в фоне, а переход по
+ * уведомлению пересоздаёт экран, и новой форме нужно получить их снова. Поэтому снимает
+ * результат запись замера (`AiringTimerController.resultSaved`), «Готово» в карточке или
+ * срок [RESULT_TTL_MILLIS] — иначе вчерашние минуты легли бы в сегодняшний замер.
+ *
+ * [id] — момент запуска: по нему форма отличает результат, который уже подставила, от нового.
  */
 sealed interface AiringTimerState {
     data object Idle : AiringTimerState
@@ -48,7 +52,6 @@ sealed interface AiringTimerState {
         /** Минуты, которые уйдут в замер: заданные — или прошедшие, если завершили раньше. */
         val minutes: Int,
         val ringing: Boolean,
-        val taken: Boolean,
     ) : AiringTimerState
 
     val targetOrNull: AiringTimerTarget?
@@ -98,7 +101,7 @@ fun AiringTimerState.settled(now: Long): AiringTimerState = when (this) {
     AiringTimerState.Idle -> this
     is AiringTimerState.Running ->
         if (now >= endAt) {
-            AiringTimerState.Done(id, target, label, startedAt, endAt, minutes, ringing = false, taken = false)
+            AiringTimerState.Done(id, target, label, startedAt, endAt, minutes, ringing = false)
                 .settled(now)
         } else {
             this
@@ -108,7 +111,6 @@ fun AiringTimerState.settled(now: Long): AiringTimerState = when (this) {
         // Мелодия не играет дольше своего срока, кто бы её ни включал: служба могла умереть,
         // не дождавшись конца, и флаг остался бы поднятым навсегда.
         ringing && now - endAt > RING_TIMEOUT_MILLIS -> copy(ringing = false).settled(now)
-        taken && !ringing -> AiringTimerState.Idle
         else -> this
     }
 }
@@ -146,7 +148,6 @@ data class AiringTimerRecord(
     val endAt: Long = 0L,
     val minutes: Int = 0,
     val ringing: Boolean = false,
-    val taken: Boolean = false,
 ) {
     fun toState(): AiringTimerState = when (phase) {
         PHASE_RUNNING -> AiringTimerState.Running(
@@ -154,7 +155,7 @@ data class AiringTimerRecord(
         )
         PHASE_DONE -> AiringTimerState.Done(
             id, AiringTimerTarget(incubatorId, batchId), label, startedAt, endAt, minutes,
-            ringing, taken,
+            ringing,
         )
         else -> AiringTimerState.Idle
     }
@@ -186,7 +187,6 @@ data class AiringTimerRecord(
                 endAt = state.endAt,
                 minutes = state.minutes,
                 ringing = state.ringing,
-                taken = state.taken,
             )
         }
     }

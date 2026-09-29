@@ -183,6 +183,24 @@ fun BatchUiState.toBatches(): List<Batch> {
 fun splitBatchTitle(title: String, breed: String): String =
     if (breed.isBlank()) title.trim() else "${title.trim()} — ${breed.trim()}"
 
+/**
+ * Обратное к [splitBatchTitle]: «Весенняя партия — Хайсекс» → «Весенняя партия».
+ *
+ * По нему узнают закладки, заложенные одним нажатием на разные породы, — у них общее
+ * всё, кроме хвоста с породой. Название без такого хвоста (одна порода, переименованная
+ * закладка) возвращается как есть.
+ */
+fun baseBatchTitle(title: String, breed: String): String {
+    // Без пробела впереди: у партии без названия хвост и есть всё название, «— Хайсекс».
+    val tail = "— ${breed.trim()}"
+    val trimmed = title.trim()
+    return if (breed.isNotBlank() && trimmed.endsWith(tail)) {
+        trimmed.removeSuffix(tail).trim()
+    } else {
+        trimmed
+    }
+}
+
 fun Batch.toBatchUiState(): BatchUiState = BatchUiState(
     id,
     title,

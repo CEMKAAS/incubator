@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,14 +33,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import ru.zaroslikov.incubator.BuildConfig
-import ru.zaroslikov.incubator.InventoryApplication
 import ru.zaroslikov.incubator.analytics.Analytics
 import ru.zaroslikov.incubator.analytics.Events
-import ru.zaroslikov.incubator.rustore.IS_RUSTORE_BUILD
+import ru.zaroslikov.incubator.domain.stats.HatchSummary
 import ru.zaroslikov.incubator.ui.AppViewModelProvider
 import ru.zaroslikov.incubator.ui.LocalUnits
 import ru.zaroslikov.incubator.ui.mvi.CollectEffects
@@ -96,12 +94,6 @@ internal fun FinishBatchDialogs(
 ) {
     if (!state.loaded || state.finished) return
     val remaining = (state.eggAll - rejected).coerceAtLeast(0)
-    // Контейнер приложения ради одной просьбы оценить — без ViewModel: она не держит
-    // состояния и ничего не переживает, см. `ReviewController`.
-    val context = LocalContext.current
-    val container = remember(context) {
-        (context.applicationContext as InventoryApplication).container
-    }
 
     if (state.readyToFinish) {
         FinishOnTimeDialog(
@@ -109,22 +101,13 @@ internal fun FinishBatchDialogs(
             remaining = remaining,
             onDismiss = onDismiss,
             onConfirm = { outcome ->
-                val hatched = outcome.hatched
                 // Имя события с прежнего экрана закладки — аналитика остаётся сравнимой.
-                Analytics.report(Events.FINISH_ON_TIME, finishParams(state, hatched))
+                Analytics.report(Events.FINISH_ON_TIME, finishParams(state, outcome.hatched))
                 onFinish(outcome)
-                // Единственная минута, когда у человека в этом приложении есть чему
-                // радоваться, — и потому единственное место, где оно просит оценку.
-                // Только если птенцы действительно вывелись: доведённая до срока
-                // закладка с нулём — это горе, а не повод ставить звёзды. Просьба
-                // приходит после `onFinish`, то есть уже закрывающейся шторке вслед:
-                // окно RuStore едет из другого процесса и успевает застать пустой экран.
-                // Не чаще раза на версию — правило внутри `ReviewController`.
-                // И только в сборке для RuStore: окно оценки — это оценка в магазине,
-                // а не в приложении, см. IS_RUSTORE_BUILD.
-                if (hatched > 0 && IS_RUSTORE_BUILD) {
-                    container.review.offerAfterHatch(BuildConfig.VERSION_CODE)
-                }
+                // Просьба оценить приложение отсюда ушла: после записи над экраном
+                // встаёт поздравление с салютом (`HatchCelebrationDialog`), и окно
+                // RuStore поверх него было бы окном поверх праздника. Она приходит по
+                // «Отлично» в поздравлении — см. `IncubatorScreen`.
             },
         )
     } else {
@@ -151,7 +134,8 @@ internal fun FinishBatchDialogs(
  * каждую закладку копил бы в хранилище по объекту на каждую открытую карточку.
  *
  * [onFinished] вызывается уже после записи в базу; список закладок под меню на потоке и
- * перечитается сам.
+ * перечитается сам. Сводка в нём — для поздравления, и она есть только у закладки,
+ * доведённой до срока с птенцами (см. `BatchDetailEffect.Finished`).
  *
  * @param hide убрать закладку в архив тем же сохранением. Так завершает «Убрать в архив»
  *        из меню карточки: пункт обещает архив, и оставлять после него завершённую
@@ -162,7 +146,7 @@ internal fun FinishBatchDialogs(
 internal fun FinishBatchHost(
     batchId: Long,
     onDismiss: () -> Unit,
-    onFinished: () -> Unit,
+    onFinished: (hatched: HatchSummary?) -> Unit,
     hide: Boolean = false,
     viewModel: BatchDetailViewModel = viewModel(
         key = "batch-finish",
@@ -178,7 +162,7 @@ internal fun FinishBatchHost(
     // `BatchDetailViewModel.archive`.
     CollectEffects(viewModel) { effect ->
         when (effect) {
-            BatchDetailEffect.Finished -> onFinished()
+            is BatchDetailEffect.Finished -> onFinished(effect.hatched)
         }
     }
 
@@ -190,6 +174,190 @@ internal fun FinishBatchHost(
         onFinishEarly = { reason ->
             viewModel.onIntent(BatchDetailIntent.FinishEarly(reason, hide))
         },
+    )
+}
+
+/**
+ * Завершение партии — закладок, заложенных одним нажатием на разные породы, — одним
+ * диалогом. Открывает его подсказка «Инкубация завершена», когда срок вышел сразу у
+ * нескольких таких закладок: человек закладывал один лоток и итог вносит по нему.
+ *
+ * Собственная ViewModel под своим ключом — по той же причине, что у [FinishBatchHost].
+ *
+ * @param batchIds закладки партии; те, что к моменту чтения уже не идут, просто не
+ *        попадают в диалог.
+ * @param onFinished записано; в нём — итог каждой завершённой породы, для поздравления
+ *        (пустой список — ничего не завершили).
+ */
+@Composable
+internal fun FinishGroupHost(
+    incubatorId: Long,
+    batchIds: List<Long>,
+    onDismiss: () -> Unit,
+    onFinished: (summaries: List<HatchSummary>) -> Unit,
+    viewModel: FinishGroupViewModel = viewModel(
+        key = "batch-finish-group",
+        factory = AppViewModelProvider.Factory,
+    ),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
+    LaunchedEffect(incubatorId, batchIds) {
+        viewModel.onIntent(FinishGroupIntent.Load(incubatorId, batchIds))
+    }
+
+    CollectEffects(viewModel) { effect ->
+        when (effect) {
+            // Просьба оценить — не здесь, а по «Отлично» в поздравлении, как и у одной
+            // закладки; условие то же: птенцы вывелись хоть по одной породе.
+            is FinishGroupEffect.Finished -> onFinished(effect.summaries)
+        }
+    }
+
+    // Состояние прежнего открытия доживает до первого `Load`: чужие строки не рисуем.
+    if (!state.loaded || state.items.any { it.batch.id !in batchIds }) return
+    if (state.items.isEmpty()) {
+        // Все породы успели завершить из другого места — спрашивать не о чем.
+        LaunchedEffect(Unit) { onDismiss() }
+        return
+    }
+
+    FinishGroupDialog(
+        items = state.items,
+        onDismiss = onDismiss,
+        onConfirm = { outcomes -> viewModel.onIntent(FinishGroupIntent.Finish(outcomes)) },
+    )
+}
+
+/**
+ * Итог партии: по полю вывода и цене на каждую породу.
+ *
+ * **Пустое поле — не ноль, а «ещё не знаю».** Вывод у пород идёт не минута в минуту, и
+ * заставлять вписывать обе значило бы либо ждать последнего птенца второй, либо
+ * выдумать ей число. Поэтому завершаются только заполненные породы, а пустые остаются в
+ * инкубации — подсказка вернётся к ним при следующем заходе, уже одной закладкой. Кнопка
+ * гаснет, только пока не заполнено ни одного поля, и сама говорит, сколько пород уйдёт.
+ *
+ * Поле и цена у каждой породы — те же, что в [FinishOnTimeDialog]: итог одной породы не
+ * должен зависеть от того, из какого диалога его внесли.
+ */
+@Composable
+internal fun FinishGroupDialog(
+    items: List<FinishGroupItem>,
+    onDismiss: () -> Unit,
+    onConfirm: (Map<Long, HatchOutcome>) -> Unit,
+) {
+    val currency = LocalUnits.current.currency
+    // По идентификатору, а не по месту в списке: порода, завершённая из другого места,
+    // уходит из диалога и не должна сдвигать набранное остальным.
+    var rows by rememberSaveable(stateSaver = FinishRowsSaver) {
+        mutableStateOf(emptyMap<Long, FinishRow>())
+    }
+    val scrollState = rememberScrollState()
+
+    val filled = items.filter { rows[it.batch.id]?.hatched?.isNotBlank() == true }
+    val partial = filled.isNotEmpty() && filled.size < items.size
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "Завершить инкубацию", style = DesignType.SectionTitle) },
+        text = {
+            Column(Modifier.clearFocusOnTap().verticalScroll(scrollState)) {
+                Text(
+                    text = "Сколько птенцов вывелось по каждой породе?",
+                    style = DesignType.Body,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                FormSpacer(4.dp)
+                Text(
+                    text = "Породу, по которой вывод ещё идёт, оставьте пустой — она " +
+                        "останется в инкубации.",
+                    style = DesignType.Note,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                items.forEachIndexed { index, item ->
+                    val batch = item.batch
+                    val row = rows[batch.id] ?: FinishRow()
+                    FormSpacer(16.dp)
+                    if (index > 0) {
+                        HorizontalDivider(thickness = 0.8.dp, color = DesignPalette.CardBorder)
+                        FormSpacer(16.dp)
+                    }
+                    Text(
+                        text = batch.breed.ifBlank { batch.title.ifBlank { batch.type } },
+                        style = DesignType.CardTitle,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    FormSpacer(8.dp)
+                    FieldLabel(text = "Выведено птенцов")
+                    SheetTextField(
+                        value = row.hatched,
+                        onValueChange = {
+                            rows = rows + (batch.id to row.copy(hatched = clampCount(it, batch.eggAll)))
+                        },
+                        placeholder = "—",
+                        numeric = true,
+                    )
+                    FormSpacer(6.dp)
+                    Text(
+                        text = hatchedHint(batch.eggAll, item.remaining),
+                        style = DesignType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    FormSpacer(12.dp)
+                    ChickPriceField(
+                        row = row,
+                        onChange = { rows = rows + (batch.id to it) },
+                        label = "Стоимость птенцов, ${currency.symbol}",
+                    )
+                    // Плитки — только когда есть что считать: у трёх пород подряд пустые
+                    // «0 ₽» растянули бы диалог на экран ради ничего.
+                    if (row.priceValue > 0) {
+                        FormSpacer(8.dp)
+                        ChickPriceSummary(
+                            price = row.priceValue,
+                            perHead = row.perHead,
+                            hatched = row.outcome.hatched,
+                        )
+                    }
+                }
+
+                if (partial) {
+                    FormSpacer(16.dp)
+                    Text(
+                        text = "Без итога: " +
+                            items.filter { it !in filled }.joinToString {
+                                it.batch.breed.ifBlank { it.batch.title }
+                            } +
+                            ". Останется в инкубации — итог внесёте позже.",
+                        style = DesignType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(filled.associate { it.batch.id to rows.getValue(it.batch.id).outcome })
+                },
+                enabled = filled.isNotEmpty(),
+            ) {
+                Text(
+                    text = if (partial) "Завершить ${filled.size} из ${items.size}" else "Завершить",
+                    color = if (filled.isNotEmpty()) DesignPalette.Accent
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.background,
     )
 }
 
@@ -312,8 +480,9 @@ internal fun FinishEarlyDialog(
  * только на пустом поле, потому что «не указали» и «вывелось ноль» — разные вещи.
  *
  * Одно поле вывода и одна цена: в закладке одна порода. Лоток с двумя породами — это
- * две закладки, и каждую завершают своим диалогом, так что «какая порода выводится
- * лучше и какая дороже уходит» считается по закладкам без второго учёта внутри.
+ * две закладки, так что «какая порода выводится лучше и какая дороже уходит» считается
+ * по закладкам без второго учёта внутри. Подсказка «Инкубация завершена» спрашивает их
+ * вместе — [FinishGroupDialog], — но и там у каждой породы своё поле и своя цена.
  *
  * Цена спрашивается ровно так же, как стоимость яиц в форме закладки: сумма плюс
  * переключатель «за птенца / за всех», и хранится дословно — пересчёт одного в другое
@@ -424,6 +593,21 @@ private data class FinishRow(
 private val FinishRowSaver = listSaver<FinishRow, String>(
     save = { row -> listOf(row.hatched, row.price, row.perHead.toString()) },
     restore = { flat -> FinishRow(flat[0], flat[1], flat[2].toBoolean()) },
+)
+
+/**
+ * Строки партии — по четыре строки на закладку: идентификатор и три поля [FinishRow].
+ * Карта, а не список, по той же причине, по какой её держит [FinishGroupDialog].
+ */
+private val FinishRowsSaver = listSaver<Map<Long, FinishRow>, String>(
+    save = { rows ->
+        rows.flatMap { (id, row) -> listOf(id.toString(), row.hatched, row.price, row.perHead.toString()) }
+    },
+    restore = { flat ->
+        flat.chunked(4).associate { (id, hatched, price, perHead) ->
+            id.toLong() to FinishRow(hatched, price, perHead.toBoolean())
+        }
+    },
 )
 
 /** Цена птенцов — то же поле с переключателем, что и стоимость яиц в форме закладки. */

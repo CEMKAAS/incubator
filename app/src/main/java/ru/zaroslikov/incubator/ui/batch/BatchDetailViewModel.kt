@@ -25,6 +25,8 @@ import ru.zaroslikov.incubator.domain.model.status
 import ru.zaroslikov.incubator.domain.model.stoppedEarly
 import ru.zaroslikov.incubator.domain.repository.ItemsRepository
 import ru.zaroslikov.incubator.domain.repository.WorkRepository
+import ru.zaroslikov.incubator.domain.stats.HatchSummary
+import ru.zaroslikov.incubator.domain.stats.hatchSummaryOf
 import ru.zaroslikov.incubator.settings.AppSettings
 import ru.zaroslikov.incubator.settings.TemperatureUnit
 import ru.zaroslikov.incubator.ui.clockText
@@ -249,13 +251,6 @@ internal data class BatchDetailState(
      * `AiringTimerController`. Чей он, решает [timerSlot]: минуты этой закладке отдаёт
      * только таймер, поставленный из её формы.
      */
-    /**
-     * Минуты, которые таймер уже подставил в поле, но замер ещё не записан. Переживают
-     * сброс формы при новом открытии шторки: таймер мог кончиться, пока она была закрыта
-     * крестиком, и `Load(resetForm = true)` иначе стёр бы их, а забрать их второй раз
-     * неоткуда — результат в контроллере уже помечен забранным.
-     */
-    val timerMinutes: Int? = null,
     val airingTimer: AiringTimerState = AiringTimerState.Idle,
 ) {
     /** Цель таймера, поставленного из этой шторки. */
@@ -347,8 +342,14 @@ internal sealed interface BatchDetailEffect {
      * Эффект, а не callback в `finish(…, onDone)`: закрыть надо один раз и ровно тогда,
      * когда запись состоялась. Отправляется **после** `reportIncubationOutcomes` — см.
      * причину в [BatchDetailViewModel].
+     *
+     * [hatched] — сводка для поздравления, и она есть только у закладки, доведённой до
+     * срока с птенцами: досрочно прерванная и вывод «ноль» — не повод для салюта, и
+     * экран под шторкой ничего не показывает. Едет в эффекте, а не читается экраном
+     * из базы: закладка к тому моменту уже записана, а сводка собирается из того, что
+     * ViewModel и так держала — брака и срока вида.
      */
-    data object Finished : BatchDetailEffect
+    data class Finished(val hatched: HatchSummary? = null) : BatchDetailEffect
 }
 
 /**
@@ -438,6 +439,13 @@ internal class BatchDetailViewModel(
     private var activeBatchId: Long = 0
 
     /**
+     * Результат таймера, чьи минуты эта форма уже подставила, — по его `id`. Чтобы не
+     * подставлять их повторно при каждом ответе контроллера (человек мог их поправить) и
+     * при этом подставить снова после сброса формы. Не в состоянии: экран его не рисует.
+     */
+    private var filledTimerId: Long = 0L
+
+    /**
      * Закладка целиком, как её прочитали при открытии.
      *
      * Состояние хранит из неё только то, что рисуется, а завершение переписывает строку
@@ -446,6 +454,16 @@ internal class BatchDetailViewModel(
      * обнулить всё, чего в них не оказалось.
      */
     private var batch: Batch? = null
+
+    /**
+     * Завершение уже пишется. Кнопка диалога остаётся живой, пока запись не вернётся
+     * эффектом, и второе нажатие в это окно писало бы закладку дважды, слало бы два
+     * отчёта и оставляло в канале второй `Finished`: первый закрывает шторку и её
+     * коллектор, а второй дожидался бы следующего открытия и закрывал бы его сразу — с
+     * поздравлением за старую закладку. Сбрасывается в [load]: ViewModel живёт дольше
+     * шторки, и следующая закладка завершается заново.
+     */
+    private var finishing = false
 
     override fun onIntent(intent: BatchDetailIntent) {
         when (intent) {
@@ -482,13 +500,13 @@ internal class BatchDetailViewModel(
         // `viewOnly` считался бы по её `finished`. Три списка из базы чужие всегда, и
         // производные от них пересчитываются тут же, чтобы итог прежней закладки не
         // постоял секунду над новой.
-        // Минуты таймера — только той же закладке: результат для другой ей не принадлежит.
-        val keptMinutes = current.timerMinutes.takeIf { current.summary.batchId == batchId }
+        // Сброшенная форма снова готова принять минуты таймера: если его результат ещё
+        // ждёт (замер не записан), подписка ниже подставит их в чистое поле.
+        if (resetForm) filledTimerId = 0L
         reduce {
             copy(
                 summary = if (summary.batchId == batchId) summary else BatchDetailUiState(),
-                timerMinutes = keptMinutes,
-                form = if (resetForm) MeasurementForm(airingTime = keptMinutes?.toString().orEmpty()) else form,
+                form = if (resetForm) MeasurementForm() else form,
                 dayForm = if (resetForm) MeasurementForm() else dayForm,
                 dayEdit = if (resetForm) null else dayEdit,
                 measurementsByDay = emptyMap(),
@@ -498,6 +516,7 @@ internal class BatchDetailViewModel(
         }
         batch = null
         activeBatchId = batchId
+        finishing = false
 
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
@@ -636,7 +655,11 @@ internal class BatchDetailViewModel(
     private fun save() {
         val snapshot = current
         val dayRow = snapshot.summary.plannedToday ?: return
-        persist(snapshot.form, dayRow.id) { reduce { copy(form = MeasurementForm(), timerMinutes = null) } }
+        persist(snapshot.form, dayRow.id) {
+            reduce { copy(form = MeasurementForm()) }
+            // Замер «сегодня» записан — результат таймера этой закладки отработал.
+            airingTimer.resultSaved(snapshot.timerTarget)
+        }
     }
 
     // --- Замеры произвольного дня (вкладка «Расписание») -----------------------------------
@@ -719,15 +742,15 @@ internal class BatchDetailViewModel(
     // --- Таймер проветривания ---------------------------------------------------------------
 
     /**
-     * Слушает таймер, пока шторка открыта, и забирает его результат, когда он адресован
-     * этой закладке: минуты ложатся в поле «ПРОВ., МИН» формы «Замеры за сегодня», и
-     * контроллер получает [AiringTimerController.take] с тем же [AiringTimerState.Done.id]
-     * — второй раз тот же результат сюда не придёт. Форма, открытая уже после того, как
-     * таймер кончился, получает минуты тем же путём: результат ждёт её в контроллере.
+     * Слушает таймер и подставляет его результат, когда он адресован этой закладке:
+     * минуты ложатся в поле «ПРОВ., МИН» формы «Замеры за сегодня» — один раз на
+     * результат и форму ([filledTimerId]), чтобы поправленное руками число не
+     * перезаписывалось. Контроллеру подстановка ничего не сообщает: результат ждёт там,
+     * пока замер не записан ([AiringTimerController.resultSaved]), и поэтому доходит и до
+     * формы, пересозданной переходом по уведомлению, — прежняя успевала подставить минуты
+     * в свёрнутом приложении и уносила их с собой.
      *
-     * Под автопроветриванием поле заперто и минуты писать некуда, но результат всё равно
-     * забирается — иначе он лежал бы до срока годности и лёг бы в первую же форму, где
-     * клетку открыли.
+     * Под автопроветриванием поле заперто, и подставлять некуда.
      */
     private suspend fun watchAiringTimer(batchId: Long) {
         airingTimer.state.collect { raw ->
@@ -741,16 +764,13 @@ internal class BatchDetailViewModel(
             }
             reduce { copy(airingTimer = timer) }
             val snapshot = current
-            if (timer is AiringTimerState.Done && !timer.taken && timer.target == snapshot.timerTarget) {
-                if (!snapshot.summary.autoAiring) {
-                    reduce {
-                        copy(
-                            form = form.copy(airingTime = timer.minutes.toString()),
-                            timerMinutes = timer.minutes,
-                        )
-                    }
-                }
-                airingTimer.take(timer.id)
+            if (timer is AiringTimerState.Done &&
+                timer.id != filledTimerId &&
+                timer.target == snapshot.timerTarget &&
+                !snapshot.summary.autoAiring
+            ) {
+                filledTimerId = timer.id
+                reduce { copy(form = form.copy(airingTime = timer.minutes.toString())) }
             }
         }
     }
@@ -845,6 +865,8 @@ internal class BatchDetailViewModel(
      * закладку обратно в список.
      */
     private fun archive(finished: Batch, hide: Boolean) {
+        if (finishing) return
+        finishing = true
         viewModelScope.launch {
             val stamped = finished.copy(hidden = finished.hidden || hide)
             // Сперва запись, потом снятие, и порядок здесь не косметический. Упади
@@ -880,7 +902,12 @@ internal class BatchDetailViewModel(
             // чтение базы для отчёта было бы отменено на середине. Записан итог уже
             // выше, поэтому эффективность считается вместе с этой закладкой.
             itemsRepository.reportIncubationOutcomes(stamped.incubatorId, listOf(stamped))
-            sendEffect(BatchDetailEffect.Finished)
+            // Поздравление — только за птенцов: прерванная закладка и вывод «ноль» —
+            // это горе, а не праздник, и сводка им не собирается.
+            val hatched = if (stamped.status == BatchStatus.Hatched && stamped.eggAllEND > 0) {
+                hatchSummaryOf(stamped, current.rejectedTotal, current.summary.totalDays)
+            } else null
+            sendEffect(BatchDetailEffect.Finished(hatched))
         }
     }
 }

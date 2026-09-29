@@ -123,14 +123,18 @@ class AiringTimerController(
     }
 
     /**
-     * Форма записала минуты в поле. Тот же [id], что у результата, — чтобы форма,
-     * открытая второй раз, не забрала его снова: состояние после этого уходит в покой,
-     * как только смолкнет мелодия.
+     * Замер записан из формы с целью [target] — результат таймера для неё отработал.
+     *
+     * Именно запись, а не подстановка минут в поле, снимает результат: подставить его
+     * успевает и форма, которую потом пересоздаёт переход по уведомлению (она слушает
+     * таймер и из свёрнутого приложения), и если бы подстановка его снимала, новая форма
+     * получила бы пустое поле. Мелодию, если ещё играет, запись тоже гасит — крышку,
+     * значит, закрыли.
      */
-    fun take(id: Long) {
+    fun resultSaved(target: AiringTimerTarget) {
         val done = _state.value as? AiringTimerState.Done ?: return
-        if (done.id != id || done.taken) return
-        write(done.copy(taken = true).settled(now()))
+        if (done.target != target) return
+        write(AiringTimerState.Idle)
     }
 
     /** «Готово» в форме: мелодия смолкает, результат больше никого не ждёт. */
@@ -148,7 +152,6 @@ class AiringTimerController(
             endAt = now(),
             minutes = minutes,
             ringing = ringing,
-            taken = false,
         )
 
     private fun write(state: AiringTimerState) {

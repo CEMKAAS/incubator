@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import ru.zaroslikov.incubator.domain.incubation.SpeciesCatalog
 import ru.zaroslikov.incubator.domain.model.Batch
+import ru.zaroslikov.incubator.ui.batch.baseBatchTitle
+import ru.zaroslikov.incubator.ui.batch.splitBatchTitle
 import org.junit.Test
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -67,6 +69,49 @@ class FinishedBatchPromptTest {
         assertEquals(2L, batchDueToFinish(batches, SpeciesCatalog.EMPTY, moment("29.08.2026 10:00"))?.batch?.id)
     }
 
+    // --- Партия из нескольких пород ------------------------------------------------------
+
+    @Test
+    fun `породы одной партии предлагаются вместе`() {
+        val batches = listOf(
+            batch(id = 3, start = "01.08.2026", time = "08:00", title = "Весна — Хайсекс", breed = "Хайсекс"),
+            batch(id = 4, start = "01.08.2026", time = "08:00", title = "Весна — Ломан Браун", breed = "Ломан Браун"),
+        )
+        val group = groupDueToFinish(dueMoments(batches, SpeciesCatalog.EMPTY), moment("22.08.2026 09:00"))
+        assertEquals(listOf(3L, 4L), group?.batches?.map { it.id })
+    }
+
+    @Test
+    fun `оставленная на потом порода предлагается одна`() {
+        // Одну породу завершили из партии, вторую оставили пустой — она ждёт итога сама.
+        val batches = listOf(
+            batch(id = 3, start = "01.08.2026", time = "08:00", title = "Весна — Хайсекс", breed = "Хайсекс", arhive = "1"),
+            batch(id = 4, start = "01.08.2026", time = "08:00", title = "Весна — Ломан Браун", breed = "Ломан Браун"),
+        )
+        val group = groupDueToFinish(dueMoments(batches, SpeciesCatalog.EMPTY), moment("22.08.2026 09:00"))
+        assertEquals(listOf(4L), group?.batches?.map { it.id })
+    }
+
+    @Test
+    fun `разные закладки одного дня партией не считаются`() {
+        val batches = listOf(
+            batch(id = 3, start = "01.08.2026", time = "08:00", title = "Для себя", breed = "Хайсекс"),
+            batch(id = 4, start = "01.08.2026", time = "08:00", title = "На продажу", breed = "Хайсекс"),
+            batch(id = 5, start = "01.08.2026", time = "09:00", title = "Для себя — Ломан Браун", breed = "Ломан Браун"),
+            batch(id = 6, start = "01.08.2026", time = "08:00", title = "Для себя — Ломан Браун", breed = "Ломан Браун", incubatorId = 2),
+        )
+        val group = groupDueToFinish(dueMoments(batches, SpeciesCatalog.EMPTY), moment("22.08.2026 10:00"))
+        assertEquals(listOf(3L), group?.batches?.map { it.id })
+    }
+
+    @Test
+    fun `название партии без хвоста породы`() {
+        assertEquals("Весна", baseBatchTitle("Весна — Хайсекс", "Хайсекс"))
+        assertEquals("", baseBatchTitle(splitBatchTitle("", "Хайсекс"), "Хайсекс"))
+        assertEquals("Весна", baseBatchTitle("Весна", "Хайсекс"))
+        assertEquals("Весна — Хайсекс", baseBatchTitle("Весна — Хайсекс", ""))
+    }
+
     // --- Помощники --------------------------------------------------------------------------
 
     private fun batch(
@@ -75,9 +120,14 @@ class FinishedBatchPromptTest {
         type: String = "Курицы",
         time: String = "",
         arhive: String = "0",
+        title: String = "Закладка",
+        breed: String = "",
+        incubatorId: Long = 1,
     ) = Batch(
         id = id,
-        title = "Закладка",
+        title = title,
+        breed = breed,
+        incubatorId = incubatorId,
         type = type,
         data = start,
         eggAll = 30,

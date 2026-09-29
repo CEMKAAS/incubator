@@ -92,6 +92,7 @@ import ru.zaroslikov.incubator.R
 import ru.zaroslikov.incubator.domain.model.Candling
 import ru.zaroslikov.incubator.domain.model.Measurement
 import ru.zaroslikov.incubator.domain.model.Value
+import ru.zaroslikov.incubator.domain.stats.HatchSummary
 import ru.zaroslikov.incubator.ui.AppViewModelProvider
 import ru.zaroslikov.incubator.ui.LocalUnits
 import ru.zaroslikov.incubator.ui.components.AutoCellText
@@ -221,6 +222,11 @@ internal fun BatchDetailSheet(
     draft: SheetDraft,
     onDismiss: () -> Unit,
     readOnly: Boolean = false,
+    /**
+     * Закладка доведена до срока с птенцами и записана — экран под шторкой показывает
+     * поздравление. Прерванная и вывод «ноль» сюда не приходят: шторка просто закрывается.
+     */
+    onHatched: (HatchSummary) -> Unit = {},
     viewModel: BatchDetailViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -282,9 +288,12 @@ internal fun BatchDetailSheet(
     // больше нет, а список под шторкой перечитается сам, он на потоке.
     CollectEffects(viewModel) { effect ->
         when (effect) {
-            BatchDetailEffect.Finished -> {
+            is BatchDetailEffect.Finished -> {
                 showFinish = false
                 close()
+                // После закрытия: поздравление — диалог экрана, а не шторки, и он
+                // встаёт над списком, где завершённую карточку уже видно.
+                effect.hatched?.let(onHatched)
             }
         }
     }

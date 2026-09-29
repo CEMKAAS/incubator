@@ -92,8 +92,6 @@ internal data class IncubatorMeasurementState(
     val incubatorName: String = "",
     /** Таймер проветривания — единственный на приложение; чей он, решает [timerSlot]. */
     val airingTimer: AiringTimerState = AiringTimerState.Idle,
-    /** Минуты, подставленные таймером и ещё не записанные — переживают сброс формы (см. `BatchDetailState`). */
-    val timerMinutes: Int? = null,
 ) {
     val timerTarget: AiringTimerTarget get() = AiringTimerTarget(incubatorId)
 
@@ -187,6 +185,9 @@ internal class IncubatorMeasurementViewModel(
     /** Инкубатор, который читают сейчас; ответы отменённого чтения сверяются с ним. */
     private var activeIncubatorId: Long = 0
 
+    /** Результат таймера, чьи минуты форма уже подставила; см. `BatchDetailViewModel`. */
+    private var filledTimerId: Long = 0L
+
     override fun onIntent(intent: IncubatorMeasurementIntent) {
         when (intent) {
             is IncubatorMeasurementIntent.Load -> load(intent.incubatorId, intent.resetForm)
@@ -211,13 +212,13 @@ internal class IncubatorMeasurementViewModel(
 
     private fun load(incubatorId: Long, resetForm: Boolean) {
         if (incubatorId == 0L) return
-        val keptMinutes = current.timerMinutes.takeIf { activeIncubatorId == incubatorId }
+        // Сброшенная форма снова готова принять минуты ждущего результата таймера.
+        if (resetForm) filledTimerId = 0L
         reduce {
             copy(
                 loaded = if (activeIncubatorId == incubatorId) loaded else false,
                 incubatorId = incubatorId,
-                timerMinutes = keptMinutes,
-                form = if (resetForm) MeasurementForm(airingTime = keptMinutes?.toString().orEmpty()) else form,
+                form = if (resetForm) MeasurementForm() else form,
                 deselected = if (resetForm) emptySet() else deselected,
             )
         }
@@ -338,17 +339,20 @@ internal class IncubatorMeasurementViewModel(
                     "Закладок" to written,
                 ),
             )
-            reduce { copy(form = MeasurementForm(), timerMinutes = null) }
+            reduce { copy(form = MeasurementForm()) }
+            // Замер записан — результат таймера этого инкубатора отработал.
+            airingTimer.resultSaved(snapshot.timerTarget)
         }
     }
 
     // --- Таймер проветривания ---------------------------------------------------------------
 
     /**
-     * Слушает таймер и забирает его результат, когда он поставлен из этой шторки — то же,
-     * что делает `BatchDetailViewModel.watchAiringTimer`, с целью «инкубатор, без
-     * закладки». Минуты ложатся в общую форму, то есть уйдут копиями во все выбранные
-     * закладки; под общим автопроветриванием поле заперто, и результат просто снимается.
+     * Слушает таймер и подставляет его результат, когда он поставлен из этой шторки, — то
+     * же, что делает `BatchDetailViewModel.watchAiringTimer`, с целью «инкубатор, без
+     * закладки»: один раз на результат и форму, а снимает результат запись замера. Минуты
+     * ложатся в общую форму, то есть уйдут копиями во все выбранные закладки; под общим
+     * автопроветриванием поле заперто, и подставлять некуда.
      */
     private suspend fun watchAiringTimer(incubatorId: Long) {
         airingTimer.state.collect { raw ->
@@ -361,16 +365,13 @@ internal class IncubatorMeasurementViewModel(
             }
             reduce { copy(airingTimer = timer) }
             val snapshot = current
-            if (timer is AiringTimerState.Done && !timer.taken && timer.target == snapshot.timerTarget) {
-                if (!snapshot.autoAiring) {
-                    reduce {
-                        copy(
-                            form = form.copy(airingTime = timer.minutes.toString()),
-                            timerMinutes = timer.minutes,
-                        )
-                    }
-                }
-                airingTimer.take(timer.id)
+            if (timer is AiringTimerState.Done &&
+                timer.id != filledTimerId &&
+                timer.target == snapshot.timerTarget &&
+                !snapshot.autoAiring
+            ) {
+                filledTimerId = timer.id
+                reduce { copy(form = form.copy(airingTime = timer.minutes.toString())) }
             }
         }
     }

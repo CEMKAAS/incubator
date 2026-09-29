@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import ru.zaroslikov.incubator.calendar.CalendarOffer
+import ru.zaroslikov.incubator.calendar.batchCalendarDates
 import ru.zaroslikov.incubator.domain.incubation.SpeciesCatalog
 import ru.zaroslikov.incubator.domain.incubation.setAutoIncubator
 import ru.zaroslikov.incubator.domain.model.Batch
@@ -35,6 +37,8 @@ import ru.zaroslikov.incubator.ui.clockText
 import ru.zaroslikov.incubator.ui.mvi.StatefulMviViewModel
 import ru.zaroslikov.incubator.ui.parseDate
 import ru.zaroslikov.incubator.ui.todayText
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * Откуда берётся режим, взятый из завершённой закладки.
@@ -356,8 +360,16 @@ sealed interface AddBatchEffect {
      * Закладки записаны; [ids] — их идентификаторы. При правке и при создании с одной
      * породой — ровно один; с несколькими породами — по закладке на каждую, в порядке
      * строк формы.
+     *
+     * [calendar] — важные даты новой закладки, которые экран предлагает записать в
+     * календарь телефона. Только при создании: при правке вопрос на каждое сохранение
+     * формы был бы уже не вопросом, а помехой. `null` — предлагать нечего: дата не
+     * разобралась, срок вида неизвестен или все даты уже прошли.
      */
-    data class Saved(val ids: List<Long>) : AddBatchEffect
+    data class Saved(
+        val ids: List<Long>,
+        val calendar: CalendarOffer? = null,
+    ) : AddBatchEffect
 }
 
 /**
@@ -1080,8 +1092,43 @@ class AddBatchViewModel(
             // Расписание пересчитывается по базе: времена уже записаны транзакциями выше.
             workRepository.refreshReminders()
 
-            sendEffect(AddBatchEffect.Saved(ids))
+            sendEffect(AddBatchEffect.Saved(ids, calendarOfferOf(snapshot)))
         }
+    }
+
+    /**
+     * Важные даты новой закладки для календаря — из того, что форма уже держит: даты,
+     * вида и плана по дням.
+     *
+     * Перевороты берутся из таблицы, какой её сохранят, а под автоповоротом — из
+     * [AddBatchState.scheduleBase]: инкубатор, который переворачивает сам, тоже надо
+     * выключить в день перекладки на вывод, а стёртый автоматикой столбец этого дня
+     * не знает.
+     */
+    private fun calendarOfferOf(snapshot: AddBatchState): CalendarOffer? {
+        val form = snapshot.form
+        val term = snapshot.catalog.incubationDays(form.type) ?: return null
+        val start = parseDate(form.data)
+            ?.let { it.toInstant().atZone(ZoneId.systemDefault()).toLocalDate() }
+            ?: return null
+        val plan = (if (form.over) snapshot.scheduleBase else snapshot.schedule).sortedBy { it.day }
+        // День прекращения считается по позиции строки, поэтому только для плана без
+        // пропусков: при дыре в днях дата съехала бы, а лучше не дать её вовсе.
+        val contiguous = plan.withIndex().all { (index, row) -> row.day == index + 1 }
+        val dates = batchCalendarDates(
+            start = start,
+            term = term,
+            candlingStage = { day -> snapshot.catalog.candlingStage(form.type, day) },
+            plannedTurns = if (contiguous) plan.map { it.over.trim().toIntOrNull() } else emptyList(),
+            today = LocalDate.now(),
+        )
+        if (dates.isEmpty()) return null
+        return CalendarOffer(
+            title = form.title.trim(),
+            species = form.type,
+            term = term,
+            dates = dates,
+        )
     }
 
     /**
