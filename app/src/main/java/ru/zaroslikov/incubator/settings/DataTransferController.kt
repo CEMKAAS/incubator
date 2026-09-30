@@ -96,7 +96,11 @@ sealed interface TransferState {
  * [RESTART_DELAY_MILLIS] процесс умирает — задержки хватает, чтобы прочитать строку, и
  * она же не даёт перезапуску выглядеть падением.
  */
-class DataTransferController(private val application: Application) {
+class DataTransferController(
+    private val application: Application,
+    /** Выход из аккаунта: «удалить всё» стирает профиль, а без сессии профиля не бывает. */
+    private val signOut: () -> Unit = {},
+) {
 
     /**
      * `SupervisorJob` и `Dispatchers.IO`: работа файловая, и сбой одной попытки не
@@ -195,6 +199,11 @@ class DataTransferController(private val application: Application) {
         if (_state.value is TransferState.Working) return
         _state.value = TransferState.Working
         scope.launch {
+            // «Удалить всё» стирает и профиль, а он есть только у вошедшего: выход из
+            // аккаунта — здесь же, иначе после перезапуска вход остался бы без профиля.
+            // До удаления базы и без записи в неё: файл сейчас уйдёт целиком, а запись в
+            // закрытую базу уронила бы процесс раньше обещанного перезапуска.
+            signOut()
             val next = runCatching { wipeDatabase(application) }.fold(
                 onSuccess = { TransferState.Wiped },
                 onFailure = {
@@ -205,7 +214,7 @@ class DataTransferController(private val application: Application) {
                 },
             )
             _state.value = next
-            // «Удалить всё» стирает и профиль, а токен VK лежит не в базе, а у SDK.
+            // Токен VK лежит не в базе, а у SDK.
             // Выход — попутно с паузой перед перезапуском и не дольше неё: оставшийся
             // токен безвреден (следующий вход его перепишет), а задерживать перезапуск
             // ради сети незачем.

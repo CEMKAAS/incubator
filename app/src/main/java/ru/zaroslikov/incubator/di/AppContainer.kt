@@ -14,6 +14,7 @@ import ru.zaroslikov.incubator.rustore.AppUpdateController
 import ru.zaroslikov.incubator.rustore.ReviewController
 import ru.zaroslikov.incubator.settings.AppSettings
 import ru.zaroslikov.incubator.settings.DataTransferController
+import ru.zaroslikov.incubator.stories.StoriesRepository
 import ru.zaroslikov.incubator.transfer.ScheduleTransferController
 import ru.zaroslikov.incubator.work.ReminderSync
 import ru.zaroslikov.incubator.work.ReminderScheduler
@@ -88,6 +89,13 @@ interface AppContainer {
      * отзыв токена доходят до конца и без экрана. См. [AccountRepository].
      */
     val account: AccountRepository
+
+    /**
+     * Истории главного экрана с сервера. В контейнере, а не во ViewModel: лента одна на
+     * процесс, и каждое возвращение на главный экран не должно перезапрашивать её заново.
+     * См. [StoriesRepository].
+     */
+    val stories: StoriesRepository
 }
 
 class AppDataContainer(private val application: Application) : AppContainer {
@@ -96,7 +104,8 @@ class AppDataContainer(private val application: Application) : AppContainer {
         provideItemsRepository(context)
     }
     override val appSettings = AppSettings(context)
-    override val transferController = DataTransferController(application)
+    override val transferController =
+        DataTransferController(application) { account.logout(eraseProfile = false) }
     override val scheduleTransfer by lazy { ScheduleTransferController(application, itemsRepository) }
     // Не lazy: наблюдатель за процессом обязан встать до того, как первая активность
     // выйдет на экран, иначе холодный старт пройдёт мимо него.
@@ -120,5 +129,7 @@ class AppDataContainer(private val application: Application) : AppContainer {
     // контроллер нужен, достают его отсюда и создают при первом обращении.
     override val airingTimer by lazy { AiringTimerController(application, appSettings) }
     // Lazy: процессу напоминания аккаунт не нужен, а создание читает Keystore.
-    override val account by lazy { AccountRepository(application) }
+    override val account by lazy { AccountRepository(application, itemsRepository) }
+    // Lazy: процессу напоминания истории не нужны.
+    override val stories by lazy { StoriesRepository(application, account, appSettings) }
 }

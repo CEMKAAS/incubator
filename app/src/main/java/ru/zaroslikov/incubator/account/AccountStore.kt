@@ -15,11 +15,15 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Сессия аккаунта: кто вошёл и чем подтвердить это серверу. */
+/**
+ * Сессия аккаунта: кто вошёл и чем подтвердить это серверу. [viaVk] — вошли через VK:
+ * пароля у такого аккаунта может не быть, и удаление подтверждается новым входом в VK.
+ */
 data class AccountSession(
     val userId: String,
     val email: String,
     val refreshToken: String,
+    val viaVk: Boolean = false,
 )
 
 /**
@@ -54,6 +58,7 @@ class AccountStore(context: Context) {
                 userId = json.getString("userId"),
                 email = json.getString("email"),
                 refreshToken = json.getString("refreshToken"),
+                viaVk = json.optBoolean("viaVk", false),
             )
         } catch (e: Exception) {
             if (isDead(e)) clear()
@@ -70,6 +75,7 @@ class AccountStore(context: Context) {
             .put("userId", session.userId)
             .put("email", session.email)
             .put("refreshToken", session.refreshToken)
+            .put("viaVk", session.viaVk)
         return try {
             prefs.edit().putString(KEY_SESSION, encrypt(json.toString())).commit()
         } catch (e: Exception) {
@@ -79,6 +85,35 @@ class AccountStore(context: Context) {
 
     fun clear() {
         prefs.edit().remove(KEY_SESSION).commit()
+    }
+
+    /**
+     * Чей профиль лежит в строке `User` — id аккаунта, для которого её заполняли. Живёт
+     * здесь, а не в базе, по той же причине, что и сессия: это свойство установки, а база
+     * уезжает в копиях. Не секрет, поэтому без шифрования. `null` — хозяин неизвестен:
+     * строка из прежней версии, где профиль жил без аккаунта, или уже стёртая.
+     */
+    fun profileOwner(): String? = prefs.getString(KEY_PROFILE_OWNER, null)
+
+    fun setProfileOwner(userId: String?) {
+        prefs.edit().apply {
+            if (userId == null) remove(KEY_PROFILE_OWNER) else putString(KEY_PROFILE_OWNER, userId)
+        }.commit()
+    }
+
+    /**
+     * До какого момента (мс эпохи) реклама отключена Premium — последний ответ сервера,
+     * чтобы без сети и на первом кадре запуска реклама не показалась тому, кто за это
+     * заплатил. Не секрет — без шифрования: читается синхронно в `Application.onCreate`,
+     * а Keystore там незачем. Файл исключён из резервной копии, так что чужой телефон
+     * этот срок не унаследует. `0` — рекламы не отключали.
+     */
+    fun adFreeUntil(): Long = prefs.getLong(KEY_AD_FREE_UNTIL, 0L)
+
+    fun setAdFreeUntil(until: Long) {
+        prefs.edit().apply {
+            if (until <= 0L) remove(KEY_AD_FREE_UNTIL) else putLong(KEY_AD_FREE_UNTIL, until)
+        }.apply()
     }
 
     /** Отказы, после которых расшифровать эти байты не получится уже никогда. */
@@ -135,6 +170,8 @@ class AccountStore(context: Context) {
         /** Имя повторено в `backup_rules.xml` и `data_extraction_rules.xml` — держать в согласии. */
         const val FILE_NAME = "account_prefs"
         private const val KEY_SESSION = "session"
+        private const val KEY_PROFILE_OWNER = "profile_owner"
+        private const val KEY_AD_FREE_UNTIL = "ad_free_until"
         private const val KEY_ALIAS = "incubator_account_session"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"

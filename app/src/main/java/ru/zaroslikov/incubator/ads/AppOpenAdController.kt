@@ -19,7 +19,11 @@ import com.yandex.mobile.ads.common.AdError
 import com.yandex.mobile.ads.common.AdRequest
 import com.yandex.mobile.ads.common.AdRequestError
 import com.yandex.mobile.ads.common.ImpressionData
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import ru.zaroslikov.incubator.BuildConfig
 import ru.zaroslikov.incubator.settings.AppSettings
@@ -103,6 +107,21 @@ class AppOpenAdController(
     init {
         application.registerActivityLifecycleCallbacks(HostTracker())
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+        // Premium, пришедший посреди процесса (ответ сервера на старте, оплата): заставка
+        // «загружаем рекламу» уходит сразу, заказ и лежащее объявление сбрасываются. Уже
+        // открытое объявление не закрываем — оно доиграет само.
+        // `Main`, а не `Main.immediate`: первый сбор — уже после конструктора, когда
+        // `noticeTimeout` ниже по тексту класса инициализирован.
+        CoroutineScope(SupervisorJob() + Dispatchers.Main).launch {
+            AdFree.active.collect { adFree ->
+                if (!adFree) return@collect
+                log("Premium — реклама при запуске отключена")
+                showWhenLoaded = false
+                showPending = false
+                stopWaiting()
+                clearAd()
+            }
+        }
     }
 
     /** Больше в этом процессе рекламу при запуске не показывать и не грузить. */
@@ -118,7 +137,7 @@ class AppOpenAdController(
         val cold = coldStart
         coldStart = false
         log("на передний план, холодный старт=$cold, приглушено=$muted, есть объявление=${ad != null}")
-        if (muted || showing) return
+        if (muted || showing || AdFree.active.value) return
         if (ad != null && SystemClock.elapsedRealtime() - loadedAt > AD_TTL_MS) clearAd()
         if (ad != null) {
             showPending = true
@@ -168,11 +187,11 @@ class AppOpenAdController(
     }
 
     private fun load() {
-        if (muted || loading || ad != null) return
+        if (muted || loading || ad != null || AdFree.active.value) return
         // Защёлка ставится уже внутри: если инициализация SDK так и не ответит, снаружи
         // она осталась бы поднятой навсегда, и следующий `onStart` не заказал бы ничего.
         MobileAdsSdk.whenReady(application) {
-            if (muted || loading || ad != null) return@whenReady
+            if (muted || loading || ad != null || AdFree.active.value) return@whenReady
             loading = true
             val loader = loader ?: AppOpenAdLoader(application).also { loader = it }
             val request = AdRequest.Builder(MobileAdsSdk.APP_OPEN_UNIT_ID)
@@ -209,7 +228,7 @@ class AppOpenAdController(
      * приложение свернули, и реклама поверх чужого экрана никому не нужна.
      */
     private fun showIfPossible() {
-        if (!showPending || muted || showing) return
+        if (!showPending || muted || showing || AdFree.active.value) return
         val ready = ad ?: return
         val activity = host ?: return
         val foreground = ProcessLifecycleOwner.get().lifecycle.currentState

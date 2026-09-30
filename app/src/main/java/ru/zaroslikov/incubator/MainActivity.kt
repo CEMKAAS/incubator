@@ -76,6 +76,12 @@ class MainActivity : ComponentActivity() {
         // AnalyticsProfile: там же, где и напоминания, процесс поднимает и WorkManager.
         (application as? InventoryApplication)?.container?.analyticsProfile?.syncInBackground()
 
+        // Аккаунт поднимается при каждом открытии явно, а не «потому что его спросила
+        // аналитика»: при создании он сверяет сессию и подписку с сервером, и от этого
+        // зависит, показывать ли рекламу — Premium мог кончиться или начаться в
+        // «Моём хозяйстве». Сам доступ дешёвый: чтение с диска и сеть — в его фоне.
+        (application as? InventoryApplication)?.container?.account
+
         // Таймер проветривания сверяется с часами: срок мог выйти, пока процесс был
         // мёртв, а бегущему таймеру без службы служба возвращается. См. AiringTimerController.
         (application as? InventoryApplication)?.container?.airingTimer?.refresh()

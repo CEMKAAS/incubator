@@ -4,10 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -15,11 +12,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import ru.zaroslikov.incubator.account.AccountRepository
+import ru.zaroslikov.incubator.account.AccountResult
 import ru.zaroslikov.incubator.account.AccountState
+import ru.zaroslikov.incubator.account.AccountSubscription
 import ru.zaroslikov.incubator.analytics.Analytics
 import ru.zaroslikov.incubator.analytics.Events
 import ru.zaroslikov.incubator.domain.model.User
@@ -27,59 +24,45 @@ import ru.zaroslikov.incubator.domain.repository.ItemsRepository
 import ru.zaroslikov.incubator.profile.AvatarImage
 import ru.zaroslikov.incubator.ui.mvi.MviSharing
 import ru.zaroslikov.incubator.ui.mvi.MviViewModel
-import ru.zaroslikov.incubator.vkid.VkAccount
 import ru.zaroslikov.incubator.vkid.VkId
 import ru.zaroslikov.incubator.vkid.VkLoginResult
 
 sealed interface ProfileIntent {
-    /**
-     * Сохранить поля профиля. Для гостя это и есть ручная регистрация — отдельного
-     * интента у неё нет, различие «создан / изменён» ViewModel видит сама.
-     */
+    /** Сохранить поля профиля. Имя уходит на сервер, хозяйство и город остаются на телефоне. */
     data class Save(val name: String, val farm: String, val city: String) : ProfileIntent
 
-    /** Войти через VK ID — гостю это регистрация, профилю без VK — привязка. */
+    /** Войти в аккаунт через VK ID — первый вход заводит аккаунт. */
     data object LoginVk : ProfileIntent
-
-    /** Выйти из VK ID: профиль остаётся, связь с VK — нет. */
-    data object UnlinkVk : ProfileIntent
 
     data class SetAvatar(val uri: Uri) : ProfileIntent
     data object RemoveAvatar : ProfileIntent
 
-    /** Стереть профиль целиком. Хозяйство — инкубаторы, закладки — не трогается. */
-    data object Delete : ProfileIntent
+    /** Выйти из аккаунта — профиль с телефона стирается. */
+    data object Logout : ProfileIntent
 
     data object DismissNotice : ProfileIntent
+
+    /** Экран открыт — спросить у сервера свежий статус подписки. */
+    data object RefreshSubscription : ProfileIntent
 }
 
 sealed interface ProfileEffect {
     /** Поля сохранены — окно правки можно закрыть. */
     data object Saved : ProfileEffect
+
+    /** Вошли через VK; [needsName] — имени нет ни на сервере, ни в VK, его стоит спросить. */
+    data class SignedInWithVk(val needsName: Boolean) : ProfileEffect
 }
 
 /**
- * «Профиль»: необязательная регистрация — вход через VK ID или ручное заполнение.
+ * «Профиль» — это аккаунт: вошедший видит свои имя, фото, хозяйство и город, остальные —
+ * приглашение войти.
  *
- * Состояние — профиль из базы плюс два локальных флага (идёт ли вход, что сказать
- * человеку), поэтому `combine` со `stateIn`, как у экранов-списков: своих полей ввода
- * экран не держит — их держит окно правки, пока оно открыто.
- *
- * Три правила держат запись.
- *
- * **Каждое изменение — чтение, правка и запись строки под одним [writeLock].** Строка
- * одна на все поля, и без замка две записи, прочитавшие её одновременно, затёрли бы друг
- * друга: город, сохранённый, пока качается фото VK, пропадал бы при записи привязки.
- *
- * **Сначала база, потом VK.** Выход из VK — сетевой запрос, который SDK делает под своим
- * замком и который без сети висит до таймаута. «Удалить профиль» и «Выйти из VK» ждали
- * его раньше записи, и человек, ушедший с экрана, не дождавшись, оставлял профиль
- * неудалённым. Теперь строка пишется сразу, а выход из VK идёт следом в [background] —
- * области, которая переживает экран, — и его неудача ничего не отменяет.
- *
- * **Запись после ответа VK не отменяется уходом с экрана** (`NonCancellable`): человек
- * уже вошёл в окне VK, и токен уже у SDK — профиль, не узнавший об этом, разошёлся бы
- * с ним.
+ * Состояние — строка профиля из базы, состояние аккаунта и два локальных флага (идёт ли
+ * вход, что сказать человеку), поэтому `combine` со `stateIn`, как у экранов-списков.
+ * Писать в строку профиля эта ViewModel сама не умеет — только через
+ * [AccountRepository.editProfile], под одним замком со входом и выходом: иначе фото,
+ * докачавшееся после входа, затирало бы город, сохранённый в ту же секунду.
  */
 class ProfileViewModel(
     private val application: Application,
@@ -91,23 +74,23 @@ class ProfileViewModel(
 
     private val local = MutableStateFlow(Local())
 
-    private val writeLock = Mutex()
-
-    /**
-     * Область для выхода из VK: не `viewModelScope`, потому что выход нужно довести до
-     * конца и после закрытия экрана, а ждать его экрану незачем.
-     */
-    private val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
     override val state: StateFlow<ProfileUiState> =
-        combine(itemsRepository.getUser(), local, account.state) { user, flags, accountState ->
+        combine(
+            itemsRepository.getUser(),
+            local,
+            account.state,
+            account.subscription,
+        ) { user, flags, accountState, subscription ->
             ProfileUiState(
-                user = user,
+                // Строка без сессии — остаток: прежняя версия, импортированная база. Профилем
+                // она станет только после входа, а до того не показывается.
+                user = if (accountState is AccountState.SignedIn) user else User(),
                 account = accountState,
+                subscription = subscription.takeIf { accountState is AccountState.SignedIn },
                 vkAvailable = VkId.isAvailable,
                 busy = flags.busy,
                 notice = flags.notice,
-                loading = false,
+                loading = accountState == AccountState.Checking,
             )
         }.stateIn(viewModelScope, MviSharing.WhileVisible, ProfileUiState())
 
@@ -115,80 +98,83 @@ class ProfileViewModel(
         when (intent) {
             is ProfileIntent.Save -> save(intent.name, intent.farm, intent.city)
             ProfileIntent.LoginVk -> loginVk()
-            ProfileIntent.UnlinkVk -> unlinkVk()
             is ProfileIntent.SetAvatar -> setAvatar(intent.uri)
-            ProfileIntent.RemoveAvatar -> launchEdit { if (it.hasProfile) it.copy(avatar = null) else null }
-            ProfileIntent.Delete -> delete()
+            ProfileIntent.RemoveAvatar -> viewModelScope.launch {
+                account.editProfile { it.copy(avatar = null) }
+            }
+            ProfileIntent.Logout -> if (account.logout()) Analytics.report(Events.ACCOUNT_LOGOUT)
             ProfileIntent.DismissNotice -> local.update { it.copy(notice = null) }
+            ProfileIntent.RefreshSubscription -> viewModelScope.launch { account.refreshSubscription() }
         }
     }
 
     /**
-     * Читает строку, отдаёт её [transform] и пишет ответ — под [writeLock]. `null` из
-     * [transform] значит «писать нечего». Возвращает прежнюю и новую строку.
-     */
-    private suspend fun edit(transform: (User) -> User?): Pair<User, User>? =
-        writeLock.withLock {
-            val current = itemsRepository.getUser().first()
-            val updated = transform(current) ?: return@withLock null
-            if (updated != current) itemsRepository.saveUser(updated)
-            current to updated
-        }
-
-    private fun launchEdit(transform: (User) -> User?) {
-        viewModelScope.launch { edit(transform) }
-    }
-
-    /**
-     * Сохраняет поля. Имя обязательно всегда — и при ручной регистрации, и в профиле с VK:
-     * профиль без имени, отвязанный от VK, превратился бы в гостя, у которого в базе
-     * остались хозяйство, город и фото, — невидимые и неудаляемые. Окно правки такую
-     * кнопку не даёт нажать, ViewModel повторяет правило, потому что композиция может
-     * пережить состояние, из которого была построена.
-     *
-     * Двойное нажатие «Создать» безвредно: вторая запись ждёт первую на замке, видит уже
-     * заведённый профиль и отчитывается «изменён», а не «создан» во второй раз.
+     * Сохраняет поля. Имя обязательно; если оно изменилось, сначала уходит на сервер — оно
+     * общее с «Моим хозяйством», — и без ответа сервера не сохраняется ничего: окно правки
+     * остаётся открытым с сообщением, а не закрывается, делая вид, что всё записано.
      */
     private fun save(name: String, farm: String, city: String) {
+        if (local.value.busy) return
+        val newName = name.trim().take(NAME_MAX_LENGTH)
+        if (newName.isBlank()) return
+        local.update { it.copy(busy = true, notice = null) }
         viewModelScope.launch {
-            val (before, after) = edit { current ->
-                current.copy(
-                    name = name.trim().take(NAME_MAX_LENGTH),
-                    farm = farm.trim().take(FARM_MAX_LENGTH),
-                    city = city.trim().take(CITY_MAX_LENGTH),
-                ).takeIf { it.hasName }
-            } ?: return@launch
-            if (before.hasProfile) {
-                Analytics.report(Events.PROFILE_UPDATED, mapOf("Фото" to (after.avatar != null)))
-            } else {
-                Analytics.report(Events.PROFILE_CREATED, mapOf("Способ" to "вручную"))
+            try {
+                if (newName != state.value.user.name) {
+                    val renamed = account.updateName(newName)
+                    if (renamed is AccountResult.Failure) {
+                        local.update { it.copy(notice = "Имя не сохранено: ${renamed.error.message}") }
+                        return@launch
+                    }
+                }
+                val (before, after) = withContext(NonCancellable) {
+                    account.editProfile {
+                        it.copy(
+                            name = newName,
+                            farm = farm.trim().take(FARM_MAX_LENGTH),
+                            city = city.trim().take(CITY_MAX_LENGTH),
+                        )
+                    }
+                } ?: return@launch
+                if (before.hasName) {
+                    Analytics.report(Events.PROFILE_UPDATED, mapOf("Фото" to (after.avatar != null)))
+                } else {
+                    Analytics.report(Events.PROFILE_CREATED, mapOf("Способ" to profileMethod()))
+                }
+                sendEffect(ProfileEffect.Saved)
+            } finally {
+                local.update { it.copy(busy = false) }
             }
-            sendEffect(ProfileEffect.Saved)
         }
     }
 
     /**
-     * Вход через VK ID.
-     *
-     * Имя и фото VK подставляются **только в пустые поля**: имя, которое человек набрал
-     * сам, — его выбор, и привязка VK не повод его переписывать. У гостя пусто всё, так
-     * что регистрация через VK заполняет профиль целиком.
-     *
-     * Привязка пишется сразу, фото — отдельной правкой после скачивания: оно может идти
-     * секунды, и держать всё это время замок (или устаревшую копию строки) значило бы
-     * либо блокировать правку профиля, либо затереть её. Фото ложится, только если его
-     * за это время не выбрали вручную. Скачивается один раз и хранится байтами: адрес
-     * фото VK со временем протухает, а офлайн-приложение должно показывать аватар и без
-     * сети.
+     * Вход в аккаунт через VK ID: окно VK, затем его токен — серверу, который выдаёт свои.
+     * Запись после ответа VK не отменяется уходом с экрана (`NonCancellable`): человек уже
+     * вошёл в окне VK, и брошенный на полпути вход оставил бы токен у SDK без аккаунта.
      */
     private fun loginVk() {
         if (local.value.busy) return
         local.update { it.copy(busy = true, notice = null) }
         viewModelScope.launch {
             try {
-                when (val result = VkId.login()) {
-                    is VkLoginResult.Success -> withContext(NonCancellable) {
-                        linkAccount(result.account)
+                when (val vk = VkId.login()) {
+                    is VkLoginResult.Success -> {
+                        val result = withContext(NonCancellable) {
+                            account.loginWithVk(vk.account.accessToken)
+                        }
+                        when (result) {
+                            is AccountResult.Success -> {
+                                Analytics.report(Events.VK_LOGIN, mapOf("Исход" to "вход"))
+                                sendEffect(ProfileEffect.SignedInWithVk(needsName = !hasName()))
+                            }
+                            is AccountResult.Failure -> {
+                                Analytics.report(Events.VK_LOGIN, mapOf("Исход" to "ошибка"))
+                                local.update { it.copy(notice = result.error.message) }
+                                // Сервер вход не принял — токен у SDK ни к чему.
+                                VkId.logout()
+                            }
+                        }
                     }
 
                     VkLoginResult.Cancelled ->
@@ -210,55 +196,11 @@ class ProfileViewModel(
         }
     }
 
-    private suspend fun linkAccount(vk: VkAccount) {
-        val (before, after) = edit { current ->
-            current.copy(
-                name = current.name.ifBlank {
-                    vk.fullName.ifBlank { VK_FALLBACK_NAME }.take(NAME_MAX_LENGTH)
-                },
-                vkUserId = vk.userId,
-            )
-        } ?: return
-        Analytics.report(Events.VK_LOGIN, mapOf("Исход" to "вход"))
-        if (!before.hasProfile) {
-            Analytics.report(Events.PROFILE_CREATED, mapOf("Способ" to "VK"))
-        }
-        if (after.avatar == null) {
-            val photo = vk.photoUrl?.let { AvatarImage.fromUrl(it) } ?: return
-            // Только если фото всё ещё нет и профиль тот же: за время скачивания его могли
-            // выбрать вручную, отвязать VK или удалить профиль целиком.
-            edit { current ->
-                if (current.avatar == null && current.vkUserId == vk.userId) {
-                    current.copy(avatar = photo)
-                } else {
-                    null
-                }
-            }
-        }
-    }
+    /** Имя из базы прямо сейчас: `state` после входа мог ещё не дождаться ответа Room. */
+    private suspend fun hasName(): Boolean = itemsRepository.getUser().first().hasName
 
-    /**
-     * Отвязывает VK. Имя и фото, пришедшие из VK, остаются: они уже часть профиля, и
-     * человек, нажавший «Выйти из VK», не просил остаться безымянным. Кто хочет стереть и
-     * их — «Удалить профиль». Имя у профиля есть всегда (см. [save]), так что без VK он
-     * остаётся профилем, а не прячет поля за карточкой гостя.
-     */
-    private fun unlinkVk() {
-        viewModelScope.launch {
-            edit { current ->
-                if (!current.isVkLinked) {
-                    null
-                } else {
-                    current.copy(
-                        vkUserId = null,
-                        name = current.name.ifBlank { VK_FALLBACK_NAME },
-                    )
-                }
-            } ?: return@launch
-            Analytics.report(Events.VK_UNLINKED)
-            logoutInBackground()
-        }
-    }
+    private fun profileMethod(): String =
+        if ((state.value.account as? AccountState.SignedIn)?.viaVk == true) "VK" else "почта"
 
     private fun setAvatar(uri: Uri) {
         viewModelScope.launch {
@@ -267,54 +209,34 @@ class ProfileViewModel(
                 local.update { it.copy(notice = "Не удалось открыть это фото.") }
                 return@launch
             }
-            edit { if (it.hasProfile) it.copy(avatar = avatar) else null }
+            account.editProfile { it.copy(avatar = avatar) }
         }
-    }
-
-    /**
-     * Удаляет профиль: пустая строка вместо прежней, затем выход из VK, если он был.
-     *
-     * Строка переписывается пустой, а не удаляется: для репозитория это одно и то же
-     * (`getUser()` отдаёт `User()` в обоих случаях), а у DAO нет и не нужно второго пути.
-     */
-    private fun delete() {
-        viewModelScope.launch {
-            val (before, _) = edit { User() } ?: return@launch
-            Analytics.report(Events.PROFILE_DELETED)
-            if (before.isVkLinked) logoutInBackground()
-        }
-    }
-
-    private fun logoutInBackground() {
-        background.launch { VkId.logout() }
     }
 
     companion object {
         /**
          * Имя длиннее прежних 20 символов: у VK оно приходит «имя фамилия», и
-         * «Константин Константинопольский» в двадцать не влезает. В шапке оно
-         * переносится на вторую строку, а не вытесняет остальное.
+         * «Константин Константинопольский» в двадцать не влезает.
          */
-        const val NAME_MAX_LENGTH = 40
+        const val NAME_MAX_LENGTH = AccountRepository.NAME_MAX_LENGTH
         const val FARM_MAX_LENGTH = 40
         const val CITY_MAX_LENGTH = 30
-
-        /** Имя на случай, когда VK не отдал ни имени, ни фамилии. */
-        const val VK_FALLBACK_NAME = "Пользователь VK"
     }
 }
 
 @Immutable
 data class ProfileUiState(
+    /** Профиль вошедшего; у невошедшего — пустой, чем бы ни была заполнена строка в базе. */
     val user: User = User(),
-    /** Аккаунт по почте — независим от профиля: можно войти гостем, можно завести профиль без аккаунта. */
     val account: AccountState = AccountState.Unavailable,
+    /** Подписка вошедшего с сервера; `null` — ещё не известна, и экран о ней молчит. */
+    val subscription: AccountSubscription? = null,
     /** Настроен ли вход через VK ID в этой сборке — см. `VkId.isAvailable`. */
     val vkAvailable: Boolean = false,
-    /** Идёт вход через VK — кнопки VK погашены. */
+    /** Идёт вход или сохранение — кнопки погашены. */
     val busy: Boolean = false,
     /** Сообщение для человека — ошибка входа, неоткрывшееся фото. */
     val notice: String? = null,
-    /** База ещё не ответила: гость и «ещё неизвестно» — разные экраны. */
+    /** Сессия ещё читается с диска. */
     val loading: Boolean = true,
 )

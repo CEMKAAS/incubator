@@ -74,6 +74,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.zaroslikov.incubator.ads.AdBannerAfter
@@ -95,6 +96,10 @@ import ru.zaroslikov.incubator.ui.navigation.NavigationDestination
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
 import ru.zaroslikov.incubator.ui.shortDate
+import ru.zaroslikov.incubator.ui.stories.StoriesIntent
+import ru.zaroslikov.incubator.ui.stories.StoriesRow
+import ru.zaroslikov.incubator.ui.stories.StoriesViewModel
+import ru.zaroslikov.incubator.ui.stories.StoryViewer
 import java.util.Date
 import kotlinx.coroutines.launch
 
@@ -137,10 +142,21 @@ fun StartScreen(
      */
     openAddOnStart: Boolean = false,
     viewModel: StartScreenViewModel = viewModel(factory = AppViewModelProvider.Factory),
+    storiesViewModel: StoriesViewModel = viewModel(factory = AppViewModelProvider.Factory),
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val send = viewModel::onIntent
+    val stories by storiesViewModel.state.collectAsStateWithLifecycle()
+    // Каждое возвращение на экран — повод обновить ленту; пора ли на самом деле идти в
+    // сеть, решает репозиторий (раз в несколько минут или после смены аккаунта).
+    LifecycleResumeEffect(Unit) {
+        storiesViewModel.onIntent(StoriesIntent.Refresh)
+        onPauseOrDispose { }
+    }
+    // Открытая история — по id, а не по номеру: номер между поворотом экрана и ответом
+    // сервера мог указать уже на другую.
+    var openStoryId by rememberSaveable { mutableStateOf<String?>(null) }
     // Владельцы рекламы живут с экраном, а не с элементом списка: см. BannerAdHosts.
     val adHosts = rememberBannerAdHosts()
     var showAddSheet by rememberSaveable { mutableStateOf(openAddOnStart) }
@@ -263,6 +279,27 @@ fun StartScreen(
                         bottom = FabReserve,
                     ),
                 ) {
+                    // Истории — первым элементом списка, а не в неподвижной шапке: они
+                    // нужны раз в день, а список — каждый раз, и строка кружков уезжает с
+                    // первым же движением пальца, возвращая ему место. Только на первой
+                    // вкладке и не поверх загрузки: над архивом новости не к месту, а над
+                    // спиннером — это единственное, что было бы на экране.
+                    if (page == 0 && !uiState.loading && stories.stories.isNotEmpty()) {
+                        item(key = "stories") {
+                            StoriesRow(
+                                stories = stories.stories,
+                                screenPadding = ScreenPadding,
+                                onOpen = { story ->
+                                    Analytics.report(
+                                        Events.STORY_OPENED,
+                                        mapOf("История" to story.title, "Просмотрена" to story.viewed),
+                                    )
+                                    openStoryId = story.id
+                                },
+                                modifier = Modifier.padding(bottom = 16.dp),
+                            )
+                        }
+                    }
                     if (uiState.loading) {
                         // База ещё не ответила. Приветствие здесь врало бы: список
                         // пуст не потому, что инкубаторов нет, а потому, что их ещё
@@ -370,6 +407,24 @@ fun StartScreen(
                 incubatorId = qrIncubatorId,
                 onDismiss = { qrIncubatorId = 0L },
             )
+        }
+
+        openStoryId?.let { id ->
+            val index = stories.stories.indexOfFirst { it.id == id }
+            if (index < 0) {
+                // Историю сняли с показа, пока экран поворачивался, — открывать нечего.
+                LaunchedEffect(id) { openStoryId = null }
+            } else {
+                StoryViewer(
+                    stories = stories.stories,
+                    startIndex = index,
+                    onViewed = { story ->
+                        Analytics.report(Events.STORY_COMPLETED, mapOf("История" to story.title))
+                        storiesViewModel.onIntent(StoriesIntent.Viewed(story.id))
+                    },
+                    onDismiss = { openStoryId = null },
+                )
+            }
         }
 
     }

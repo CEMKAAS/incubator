@@ -3,11 +3,14 @@ package ru.zaroslikov.incubator.ui.profile
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
+import ru.zaroslikov.incubator.account.AccountError
 import ru.zaroslikov.incubator.account.AccountRepository
 import ru.zaroslikov.incubator.account.AccountResult
 import ru.zaroslikov.incubator.analytics.Analytics
 import ru.zaroslikov.incubator.analytics.Events
 import ru.zaroslikov.incubator.ui.mvi.StatefulMviViewModel
+import ru.zaroslikov.incubator.vkid.VkId
+import ru.zaroslikov.incubator.vkid.VkLoginResult
 
 /** Шаг формы аккаунта. Коды — два разных шага: после них происходит разное. */
 enum class AccountStep {
@@ -32,12 +35,17 @@ sealed interface AccountIntent {
     data class PasswordChanged(val value: String) : AccountIntent {
         override fun toString() = "PasswordChanged(***)"
     }
+    /** Повтор пароля при регистрации — опечатку в скрытом поле иначе не увидеть. */
+    data class PasswordRepeatChanged(val value: String) : AccountIntent {
+        override fun toString() = "PasswordRepeatChanged(***)"
+    }
     data class CodeChanged(val value: String) : AccountIntent
     data object Submit : AccountIntent
     data object ResendCode : AccountIntent
-    data object Logout : AccountIntent
     /** Открывается диалог удаления — старая ошибка из прошлого раза в нём не нужна. */
     data object StartDelete : AccountIntent
+    /** Удалить аккаунт, вошедший через VK, — подтверждение новым входом в VK. */
+    data object DeleteWithVk : AccountIntent
     data class DeleteAccount(val password: String) : AccountIntent {
         override fun toString() = "DeleteAccount(***)"
     }
@@ -45,10 +53,10 @@ sealed interface AccountIntent {
 
 sealed interface AccountEffect {
     /**
-     * Вошли. [newAccount] — аккаунт только что создан (подтверждение после регистрации):
-     * тогда гостю без профиля экран сразу предлагает его завести.
+     * Вошли. [needsName] — имени нет ни на сервере, ни на телефоне: экран сразу предлагает
+     * заполнить профиль: «вы вошли» без имени читается как половина дела.
      */
-    data class SignedIn(val newAccount: Boolean) : AccountEffect
+    data class SignedIn(val needsName: Boolean) : AccountEffect
     data object Deleted : AccountEffect
 }
 
@@ -81,6 +89,7 @@ class AccountViewModel(
                 copy(
                     step = intent.step,
                     password = "",
+                    passwordRepeat = "",
                     code = "",
                     error = null,
                     info = null,
@@ -92,12 +101,15 @@ class AccountViewModel(
             is AccountIntent.PasswordChanged -> reduce {
                 copy(password = intent.value.takeCodePoints(AccountRepository.PASSWORD_MAX), error = null)
             }
+            is AccountIntent.PasswordRepeatChanged -> reduce {
+                copy(passwordRepeat = intent.value.takeCodePoints(AccountRepository.PASSWORD_MAX), error = null)
+            }
             is AccountIntent.CodeChanged -> reduce {
                 copy(code = intent.value.filter(Char::isDigit).take(CODE_LENGTH), error = null)
             }
             AccountIntent.Submit -> submit()
             AccountIntent.ResendCode -> resend()
-            AccountIntent.Logout -> logout()
+            AccountIntent.DeleteWithVk -> deleteWithVk()
             is AccountIntent.DeleteAccount -> delete(intent.password)
         }
     }
@@ -115,6 +127,7 @@ class AccountViewModel(
                         copy(
                             step = AccountStep.Verify,
                             password = "",
+                            passwordRepeat = "",
                             pendingPassword = form.password,
                             info = "Мы отправили код на ${form.email}. Письмо может прийти " +
                                 "через минуту — загляните и в «Спам». Если вы уже " +
@@ -128,7 +141,7 @@ class AccountViewModel(
                 ) {
                     Analytics.report(Events.ACCOUNT_VERIFIED)
                     reduce { AccountFormState() }
-                    sendEffect(AccountEffect.SignedIn(newAccount = true))
+                    sendEffect(AccountEffect.SignedIn(needsName = !account.profile().hasName))
                 }
                 AccountStep.Forgot -> handle(account.forgotPassword(form.email)) {
                     reduce {
@@ -142,18 +155,18 @@ class AccountViewModel(
                 AccountStep.Reset -> handle(account.resetPassword(form.email, form.code, form.password)) {
                     Analytics.report(Events.ACCOUNT_PASSWORD_RESET)
                     reduce { AccountFormState() }
-                    sendEffect(AccountEffect.SignedIn(newAccount = false))
+                    sendEffect(AccountEffect.SignedIn(needsName = !account.profile().hasName))
                 }
             }
         }
     }
 
-    private fun handleLogin(result: AccountResult<Unit>) {
+    private suspend fun handleLogin(result: AccountResult<Unit>) {
         when (result) {
             is AccountResult.Success -> {
                 Analytics.report(Events.ACCOUNT_LOGIN, mapOf("Исход" to "вход"))
                 reduce { AccountFormState() }
-                sendEffect(AccountEffect.SignedIn(newAccount = false))
+                sendEffect(AccountEffect.SignedIn(needsName = !account.profile().hasName))
             }
             is AccountResult.Failure -> {
                 Analytics.report(Events.ACCOUNT_LOGIN, mapOf("Исход" to "ошибка"))
@@ -194,16 +207,32 @@ class AccountViewModel(
         }
     }
 
-    /** Выход целиком на стороне репозитория: он доводит его до конца и без экрана. */
-    private fun logout() {
-        if (account.logout()) Analytics.report(Events.ACCOUNT_LOGOUT)
+    private fun delete(password: String) {
+        runDelete { account.deleteAccount(password) }
     }
 
-    private fun delete(password: String) {
+    /**
+     * Удаление аккаунта, в который входили через VK: пароля у него может не быть, и личность
+     * подтверждает новый вход в VK. Отказ в окне VK — не ошибка, диалог просто остаётся.
+     */
+    private fun deleteWithVk() {
+        runDelete {
+            when (val vk = VkId.login()) {
+                is VkLoginResult.Success -> account.deleteAccountWithVk(vk.account.accessToken)
+                VkLoginResult.Cancelled -> null
+                is VkLoginResult.Failed -> AccountResult.Failure(
+                    AccountError(0, AccountError.NETWORK, "Не удалось войти через VK. Попробуйте ещё раз.")
+                )
+            }
+        }
+    }
+
+    private fun runDelete(request: suspend () -> AccountResult<Unit>?) {
         if (current.busy) return
         reduce { copy(busy = true, deleteError = null) }
         viewModelScope.launch {
-            when (val result = account.deleteAccount(password)) {
+            when (val result = request()) {
+                null -> reduce { copy(busy = false) }
                 is AccountResult.Success -> {
                     Analytics.report(Events.ACCOUNT_DELETED)
                     reduce { copy(busy = false) }
@@ -227,6 +256,8 @@ data class AccountFormState(
     val email: String = "",
     /** Пароль — на входе и регистрации, новый пароль — на [AccountStep.Reset]. */
     val password: String = "",
+    /** Повтор пароля — только на [AccountStep.Register]. */
+    val passwordRepeat: String = "",
     val code: String = "",
     val busy: Boolean = false,
     /** Отказ сервера или сети — красным над кнопкой. */
@@ -249,12 +280,13 @@ data class AccountFormState(
 
     val emailValid: Boolean get() = AccountRepository.isValidEmail(email)
     val passwordValid: Boolean get() = AccountRepository.isValidPassword(password, email)
+    val passwordsMatch: Boolean get() = password == passwordRepeat
     val codeComplete: Boolean get() = code.length == AccountViewModel.CODE_LENGTH
 
     val canSubmit: Boolean
         get() = when (step) {
             AccountStep.Login -> emailValid && password.isNotEmpty()
-            AccountStep.Register -> emailValid && passwordValid
+            AccountStep.Register -> emailValid && passwordValid && passwordsMatch
             AccountStep.Verify -> emailValid && codeComplete && pendingPassword.isNotEmpty()
             AccountStep.Forgot -> emailValid
             AccountStep.Reset -> emailValid && codeComplete && passwordValid

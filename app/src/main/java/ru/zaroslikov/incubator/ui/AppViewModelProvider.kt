@@ -17,10 +17,12 @@ import ru.zaroslikov.incubator.ui.menu.AnalyticsViewModel
 import ru.zaroslikov.incubator.ui.menu.SettingsViewModel
 import ru.zaroslikov.incubator.ui.qr.IncubatorQrViewModel
 import ru.zaroslikov.incubator.ui.profile.AccountViewModel
+import ru.zaroslikov.incubator.ui.profile.PremiumViewModel
 import ru.zaroslikov.incubator.ui.profile.ProfileViewModel
 import ru.zaroslikov.incubator.ui.qr.ScanQrViewModel
 import ru.zaroslikov.incubator.ui.species.CustomSpeciesViewModel
 import ru.zaroslikov.incubator.ui.start.StartScreenViewModel
+import ru.zaroslikov.incubator.ui.stories.StoriesViewModel
 
 
 object AppViewModelProvider {
@@ -58,6 +60,10 @@ object AppViewModelProvider {
         }
 
         initializer {
+            StoriesViewModel(inventoryApplication().container.stories)
+        }
+
+        initializer {
             AddIncubatorViewModel(
                 inventoryApplication().container.itemsRepository
             )
@@ -89,7 +95,8 @@ object AppViewModelProvider {
 
         initializer {
             AnalyticsViewModel(
-                inventoryApplication().container.itemsRepository
+                inventoryApplication().container.itemsRepository,
+                inventoryApplication().container.account,
             )
         }
 
@@ -125,6 +132,12 @@ object AppViewModelProvider {
 
         initializer {
             AccountViewModel(
+                inventoryApplication().container.account
+            )
+        }
+
+        initializer {
+            PremiumViewModel(
                 inventoryApplication().container.account
             )
         }

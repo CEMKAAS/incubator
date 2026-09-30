@@ -304,6 +304,28 @@ class AppSettings(context: Context) {
         }
 
     /**
+     * Истории главного экрана, досмотренные на этом телефоне, о которых сервер, может
+     * быть, ещё не узнал — отметка ушла без сети. См. `stories/StoriesRepository`: там же
+     * список и подрезается после каждого ответа сервера, так что расти ему не с чего.
+     *
+     * Свойство установки: просмотры помнятся за телефоном, и чужой телефон, восстановленный
+     * из этой копии, своих историй ещё не видел. Копия из `getStringSet` — сам набор
+     * `SharedPreferences` менять нельзя.
+     */
+    val viewedStories: Set<String>
+        get() = devicePrefs.getStringSet(KEY_VIEWED_STORIES, null)?.toSet().orEmpty()
+
+    fun rememberStoryViewed(id: String) {
+        setViewedStories(viewedStories + id)
+    }
+
+    fun setViewedStories(ids: Set<String>) {
+        devicePrefs.edit {
+            if (ids.isEmpty()) remove(KEY_VIEWED_STORIES) else putStringSet(KEY_VIEWED_STORIES, HashSet(ids))
+        }
+    }
+
+    /**
      * Таймер проветривания — единственный на приложение, см. `airing/AiringTimerState`.
      *
      * Свойство установки, и это важнее обычного: таймер бежит на этом телефоне, и
@@ -426,6 +448,7 @@ class AppSettings(context: Context) {
          * ни в одной прежней версии не существовал.
          */
         private const val KEY_REVIEW_VERSION = "review_asked_version"
+        private const val KEY_VIEWED_STORIES = "viewed_stories"
         private const val KEY_MIGRATED = "installation_keys_moved"
         private const val KEY_TIMER_PHASE = "airing_timer_phase"
         private const val KEY_TIMER_ID = "airing_timer_id"

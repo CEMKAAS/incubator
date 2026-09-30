@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Корона Premium: заливка, а не штрих, — это знак, а не значок действия. Перекрашивается
+     tint'ом; в окне Premium поверх неё ложится золотой градиент. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#E6C27A"
+        android:pathData="M3.2,8.2 L7.6,11.6 L11.1,5.2 C11.5,4.5 12.5,4.5 12.9,5.2 L16.4,11.6 L20.8,8.2 C21.5,7.7 22.4,8.3 22.2,9.1 L20.2,17.2 C20.1,17.7 19.7,18 19.2,18 L4.8,18 C4.3,18 3.9,17.7 3.8,17.2 L1.8,9.1 C1.6,8.3 2.5,7.7 3.2,8.2 Z" />
+    <path
+        android:fillColor="#E6C27A"
+        android:pathData="M5,19.6 L19,19.6 C19.55,19.6 20,20.05 20,20.6 C20,21.15 19.55,21.6 19,21.6 L5,21.6 C4.45,21.6 4,21.15 4,20.6 C4,20.05 4.45,19.6 5,19.6 Z" />
+</vector>

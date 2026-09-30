@@ -30,6 +30,30 @@ class AccountApiTest {
     }
 
     @Test
+    fun userNameIsDisplayNameOrVkNames() {
+        val named = AccountApi.parseUser(
+            JSONObject("""{"id":"u","displayName":" Анна ","firstName":"Ann","lastName":"B","createdAt":""}""")
+        )
+        assertEquals("Анна", named.name)
+
+        val vk = AccountApi.parseUser(
+            JSONObject(
+                """{"id":"u","vkUserId":"123456","displayName":null,"firstName":"Иван",
+                    "lastName":"Петров","avatarUrl":"https://sun.userapi.com/a.jpg",
+                    "loginEmail":null,"email":null,"createdAt":""}"""
+            )
+        )
+        assertEquals("Иван Петров", vk.name)
+        assertEquals(123456L, vk.vkUserId)
+        assertEquals("https://sun.userapi.com/a.jpg", vk.avatarUrl)
+        assertEquals("", vk.email)
+
+        val bare = AccountApi.parseUser(JSONObject("""{"id":"u","createdAt":""}"""))
+        assertEquals("", bare.name)
+        assertEquals(null, bare.vkUserId)
+    }
+
+    @Test
     fun tokensFallBackToProfileEmailThenToNothing() {
         val withProfile = JSONObject(
             """{"accessToken":"a","refreshToken":"r","expiresIn":900,
@@ -114,6 +138,8 @@ class AccountApiTest {
         assertTrue(error("REFRESH_TOKEN_REUSED").isSessionDead)
         assertTrue(error("INVALID_REFRESH_TOKEN").isSessionDead)
         assertTrue(error("USER_NOT_FOUND").isSessionDead)
+        assertTrue(error("SESSION_EXPIRED").isAccessRejected)
+        assertTrue(error("INVALID_TOKEN").isAccessRejected)
         // Сеть и перегрузка — не повод выходить из аккаунта.
         assertFalse(AccountError.network().isSessionDead)
         assertFalse(error("BUSY").isSessionDead)

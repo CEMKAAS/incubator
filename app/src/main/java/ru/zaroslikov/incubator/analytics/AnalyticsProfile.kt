@@ -101,14 +101,14 @@ class AnalyticsProfile(
         profile.text(TEMPERATURE_UNIT, appSettings.temperatureUnit.name)
         profile.text(CURRENCY, appSettings.currency.name)
         profile.text(VERSION, BuildConfig.VERSION_NAME)
-        // Прошла ли установка необязательную регистрацию и каким путём. Только сам факт:
-        // ни имя, ни хозяйство, ни город, ни VK id в аналитику не уходят.
-        val user = itemsRepository.getUser().first()
-        // Есть ли аккаунт по почте — да / нет, без самой почты. В сборке без сервера
-        // атрибут снимается: «нет» там было бы не выбором человека, а свойством сборки.
+        // Вошла ли установка в аккаунт (он же профиль) и каким путём. Только сам факт: ни
+        // почта, ни имя, ни хозяйство, ни город, ни VK id в аналитику не уходят. В сборке
+        // без сервера атрибуты снимаются: «нет» там было бы не выбором человека, а
+        // свойством сборки.
+        val account = accountState()
         profile.text(
             ACCOUNT,
-            when (accountState()) {
+            when (account) {
                 is AccountState.SignedIn -> "да"
                 AccountState.SignedOut -> "нет"
                 AccountState.Unavailable, AccountState.Checking -> null
@@ -116,10 +116,10 @@ class AnalyticsProfile(
         )
         profile.text(
             PROFILE,
-            when {
-                user.isVkLinked -> "VK"
-                user.hasProfile -> "вручную"
-                else -> "нет"
+            when (account) {
+                is AccountState.SignedIn -> if (account.viaVk) "VK" else "почта"
+                AccountState.SignedOut -> "нет"
+                AccountState.Unavailable, AccountState.Checking -> null
             },
         )
         profile.apply(Attribute.customBoolean(REMINDERS).withValue(appSettings.remindersEnabled))

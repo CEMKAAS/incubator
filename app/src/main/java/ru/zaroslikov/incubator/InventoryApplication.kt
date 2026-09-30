@@ -3,6 +3,9 @@ package ru.zaroslikov.incubator
 
 import android.app.Application
 import androidx.work.Configuration
+import ru.zaroslikov.incubator.account.AccountStore
+import ru.zaroslikov.incubator.account.adFreeAt
+import ru.zaroslikov.incubator.ads.AdFree
 import ru.zaroslikov.incubator.analytics.Analytics
 import ru.zaroslikov.incubator.di.AppContainer
 import ru.zaroslikov.incubator.di.AppDataContainer
@@ -17,6 +20,13 @@ class InventoryApplication: Application(), Configuration.Provider  {
     override fun onCreate() {
         super.onCreate()
         container = AppDataContainer(this)
+        // Premium без рекламы — из кэша, синхронно и до первого `ON_START`: реклама при
+        // запуске заказывается именно тогда, раньше любого ответа сервера. Дальше срок
+        // поправляет AccountRepository — по каждому ответу о подписке и при выходе.
+        AdFree.set(
+            BuildConfig.ACCOUNT_SERVER_URL.isNotBlank() &&
+                adFreeAt(AccountStore(this).adFreeUntil(), System.currentTimeMillis())
+        )
         // Аналитика включается после контейнера, а не до него: профиль AppMetrica
         // подписывается идентификатором установки, а тот живёт в настройках
         // (`AppSettings.installationId`). Порядок важен только здесь — событий до этой

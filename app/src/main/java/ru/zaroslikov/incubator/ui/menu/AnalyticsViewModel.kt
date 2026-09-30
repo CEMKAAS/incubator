@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import ru.zaroslikov.incubator.domain.model.BatchStatus
 import ru.zaroslikov.incubator.domain.model.User
+import ru.zaroslikov.incubator.account.AccountRepository
+import ru.zaroslikov.incubator.account.AccountState
 import ru.zaroslikov.incubator.domain.model.status
 import ru.zaroslikov.incubator.domain.repository.ItemsRepository
 import ru.zaroslikov.incubator.domain.stats.IncubatorFinance
@@ -53,6 +55,7 @@ sealed interface AnalyticsEffect
  */
 class AnalyticsViewModel(
     private val itemsRepository: ItemsRepository,
+    account: AccountRepository,
 ) : MviViewModel<AnalyticsUiState, AnalyticsIntent, AnalyticsEffect>() {
 
     override val state: StateFlow<AnalyticsUiState> =
@@ -61,12 +64,16 @@ class AnalyticsViewModel(
             itemsRepository.getAllIncubators(),
             itemsRepository.getAllBatches(),
             itemsRepository.getAllCandlings(),
-        ) { user, incubators, batches, candlings ->
+            account.state,
+        ) { user, incubators, batches, candlings, accountState ->
             // Через status, а не сравнением arhive руками: корневой CLAUDE.md прямо
             // предписывает новому UI-коду спрашивать трёхзначный статус закладки.
             val active = batches.filter { it.status == BatchStatus.Active }
             AnalyticsUiState(
-                user = user,
+                // Имя — только вошедшего: профиль есть лишь у аккаунта, а строка без сессии
+                // — остаток прежних версий, который станет профилем после входа.
+                user = if (accountState is AccountState.SignedIn) user else User(),
+                signedIn = accountState is AccountState.SignedIn,
                 incubatorCount = incubators.size,
                 activeBatches = active.size,
                 eggsInWork = active.sumOf { it.eggAll },
@@ -103,6 +110,8 @@ class AnalyticsViewModel(
 @Immutable
 data class AnalyticsUiState(
     val user: User = User(),
+    /** Вошёл ли в аккаунт: без него у карточки имени — приглашение, а не «имя не указано». */
+    val signedIn: Boolean = false,
     val incubatorCount: Int = 0,
     /** Сколько инкубаторов не назвали свою цену — знаменатель окупаемости неполон. */
     val incubatorsWithoutPrice: Int = 0,

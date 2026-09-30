@@ -26,19 +26,24 @@ sealed interface VkLoginResult {
 }
 
 /**
- * Пользователь VK в том виде, в каком он нужен профилю: идентификатор, имя и адрес фото.
+ * Пользователь VK в том виде, в каком он нужен аккаунту: токен для сервера, идентификатор,
+ * имя и адрес фото.
  *
- * Токен сюда не входит намеренно. Его держит SDK в своём зашифрованном хранилище, а
- * приложению без сервера делать с ним нечего: имя и фото приходят вместе с ним, и больше
- * ни к какому API VK приложение не обращается.
+ * [accessToken] уходит ровно в одно место — `POST /auth/vk` сервера аккаунтов, который
+ * проверяет его у VK сам и выдаёт свои токены. Больше приложение с ним ничего не делает и
+ * нигде его не хранит: сам токен держит SDK в своём зашифрованном хранилище.
  */
 data class VkAccount(
+    val accessToken: String,
     val userId: Long,
     val firstName: String,
     val lastName: String,
     val photoUrl: String?,
 ) {
     val fullName: String get() = listOf(firstName, lastName).filter { it.isNotBlank() }.joinToString(" ")
+
+    // Сгенерированный toString напечатал бы токен в любой лог, куда попадёт результат входа.
+    override fun toString() = "VkAccount(userId=$userId)"
 }
 
 /**
@@ -168,6 +173,7 @@ object VkId {
     private const val LOGOUT_TIMEOUT_MS = 15_000L
 
     private fun AccessToken.toAccount() = VkAccount(
+        accessToken = token,
         userId = userID,
         firstName = userData.firstName,
         lastName = userData.lastName,

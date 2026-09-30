@@ -92,6 +92,7 @@ fun AnalyticsScreen(
     ) {
         NameCard(
             name = uiState.user.name,
+            signedIn = uiState.signedIn,
             onEdit = navigateToProfile,
         )
 
@@ -212,7 +213,7 @@ private fun AnalyticsPage(content: @Composable ColumnScope.() -> Unit) {
  * какое из двух главнее.
  */
 @Composable
-private fun NameCard(name: String, onEdit: () -> Unit) {
+private fun NameCard(name: String, signedIn: Boolean, onEdit: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -220,9 +221,9 @@ private fun NameCard(name: String, onEdit: () -> Unit) {
             .padding(top = 20.dp, bottom = 16.dp)
     ) {
         MenuRow(
-            title = name.ifBlank { "Как вас зовут?" },
-            description = if (name.isBlank()) {
-                "Профиль необязателен — он хранится только на телефоне"
+            title = name.ifBlank { if (signedIn) "Имя не указано" else "Профиль" },
+            description = if (!signedIn) {
+                "Войдите в аккаунт — необязательно"
             } else {
                 "Владелец хозяйства"
             },

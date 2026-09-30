@@ -212,6 +212,9 @@ dependencies {
     // Вход в профиль через VK ID. Всё, что импортирует com.vk.id, лежит в пакете vkid/ —
     // как AppMetrica в analytics/.
     implementation(libs.vkid)
+    // HTTP сервера аккаунтов (account/AccountApi). В APK OkHttp и так лежит — его приносит
+    // AppMetrica; своя строка нужна лишь затем, чтобы не опираться на чужую транзитивную.
+    implementation(libs.okhttp)
 
     // Testing
     testImplementation(libs.junit)

@@ -35,7 +35,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.zaroslikov.incubator.account.AccountRepository
-import ru.zaroslikov.incubator.account.AccountState
 import ru.zaroslikov.incubator.design.components.FieldLabel
 import ru.zaroslikov.incubator.design.components.SheetDragHandle
 import ru.zaroslikov.incubator.design.components.SheetHeader
@@ -45,84 +44,6 @@ import ru.zaroslikov.incubator.design.components.accentButtonColors
 import ru.zaroslikov.incubator.design.components.clearFocusOnTap
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
-import ru.zaroslikov.incubator.ui.incubator.CardHeader
-import ru.zaroslikov.incubator.ui.incubator.TabCard
-import ru.zaroslikov.incubator.ui.menu.MenuRow
-
-/**
- * Карточка «Аккаунт» на экране профиля.
- *
- * Аккаунт и профиль — разные вещи, и карточка это держит: профиль — имя и фото на этом
- * телефоне, аккаунт — почта и пароль на сервере. Гость может войти в аккаунт, не заводя
- * профиля, и завести профиль, не входя в аккаунт. В сборке без адреса сервера
- * ([AccountState.Unavailable]) карточки нет вовсе.
- */
-@Composable
-internal fun AccountCard(
-    state: AccountState,
-    onLogin: () -> Unit,
-    onRegister: () -> Unit,
-    onLogout: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    when (state) {
-        AccountState.Unavailable, AccountState.Checking -> Unit
-        AccountState.SignedOut -> TabCard {
-            CardHeader(
-                title = "Аккаунт",
-                subtitle = "Почта и пароль — необязательно",
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = "Аккаунт понадобится, чтобы в будущем переносить хозяйство между " +
-                    "телефонами без файлов. Сейчас он хранит только почту. Аккаунт общий с " +
-                    "приложением «Моё хозяйство»: зарегистрировались в одном — входите в оба.",
-                style = DesignType.Body,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(16.dp))
-            Button(
-                onClick = onLogin,
-                modifier = Modifier.fillMaxWidth(),
-                colors = accentButtonColors(),
-            ) {
-                Text("Войти по почте", style = DesignType.ButtonLabel)
-            }
-            Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = onRegister,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = DesignPalette.IncomeSurface,
-                    contentColor = DesignPalette.Accent,
-                ),
-            ) {
-                Text("Создать аккаунт", style = DesignType.ButtonLabel)
-            }
-        }
-        is AccountState.SignedIn -> TabCard {
-            CardHeader(title = "Аккаунт", subtitle = "Вы вошли по почте")
-            Spacer(Modifier.height(16.dp))
-            MenuRow(title = state.email, description = "Почта аккаунта")
-            Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = onLogout,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = DesignPalette.IncomeSurface,
-                    contentColor = DesignPalette.Accent,
-                ),
-            ) {
-                Text("Выйти из аккаунта", style = DesignType.ButtonLabel)
-            }
-            // Удаление — текстовой кнопкой, а не второй красной плашкой: красная уже стоит
-            // ниже, у профиля, и две подряд читались бы как одно и то же действие.
-            TextButton(onClick = onDelete, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                Text("Удалить аккаунт", style = DesignType.ButtonLabel, color = DesignPalette.Expense)
-            }
-        }
-    }
-}
 
 /**
  * Форма аккаунта — вход, регистрация, код из письма, сброс пароля — одной шторкой.
@@ -227,6 +148,25 @@ internal fun AccountSheet(
                         },
                         modifier = Modifier.padding(top = 6.dp),
                     )
+                }
+                // Повтор — только при регистрации: пароль скрыт точками, и опечатка в нём
+                // иначе обнаружилась бы лишь при первом входе. При сбросе пароля ошибка
+                // дешевле — новый код приходит за минуту.
+                if (state.step == AccountStep.Register) {
+                    Spacer(Modifier.height(12.dp))
+                    FieldLabel("Повторите пароль", required = true)
+                    PasswordField(
+                        value = state.passwordRepeat,
+                        onValueChange = { send(AccountIntent.PasswordRepeatChanged(it)) },
+                    )
+                    if (state.passwordRepeat.isNotEmpty() && !state.passwordsMatch) {
+                        Text(
+                            text = "Пароли не совпадают",
+                            style = DesignType.Micro,
+                            color = DesignPalette.Expense,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
                 }
                 Spacer(Modifier.height(12.dp))
             }
@@ -333,18 +273,23 @@ private fun submitLabel(step: AccountStep) = when (step) {
     AccountStep.Reset -> "Сменить пароль и войти"
 }
 
+
 /**
- * Удаление аккаунта — с паролем. Без него удалить аккаунт мог бы любой, кому достался
- * разблокированный телефон, а вернуть удалённое нечем.
+ * Удаление аккаунта — с подтверждением личности: паролем, а у аккаунта, в который входили
+ * через VK, — новым входом в VK ([viaVk]). Без этого удалить аккаунт мог бы любой, кому
+ * достался разблокированный телефон, а вернуть удалённое нечем.
  */
 @Composable
 internal fun DeleteAccountDialog(
+    viaVk: Boolean,
     busy: Boolean,
     error: String?,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
+    onConfirmPassword: (String) -> Unit,
+    onConfirmVk: () -> Unit,
 ) {
     var password by remember { mutableStateOf("") }
+    val ready = (viaVk || password.isNotEmpty()) && !busy
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.background,
@@ -354,15 +299,23 @@ internal fun DeleteAccountDialog(
         text = {
             Column {
                 Text(
-                    text = "Аккаунт и почта будут удалены с сервера насовсем — и для " +
-                        "«Моего хозяйства» тоже: аккаунт у приложений общий. Профиль, " +
-                        "инкубаторы и закладки на телефоне останутся.",
+                    text = "Аккаунт будет удалён с сервера насовсем. Профиль — имя, фото, " +
+                        "хозяйство и город — сотрётся с телефона. Инкубаторы, закладки и " +
+                        "замеры останутся.",
                     style = DesignType.Body,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(16.dp))
-                FieldLabel("Пароль", required = true)
-                PasswordField(value = password, onValueChange = { password = it })
+                if (viaVk) {
+                    Text(
+                        text = "Чтобы подтвердить, что это вы, откроется вход в VK.",
+                        style = DesignType.Body,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    FieldLabel("Пароль", required = true)
+                    PasswordField(value = password, onValueChange = { password = it })
+                }
                 error?.let {
                     Spacer(Modifier.height(8.dp))
                     Text(it, style = DesignType.Micro, color = DesignPalette.Expense)
@@ -370,11 +323,18 @@ internal fun DeleteAccountDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(password) }, enabled = password.isNotEmpty() && !busy) {
+            TextButton(
+                onClick = { if (viaVk) onConfirmVk() else onConfirmPassword(password) },
+                enabled = ready,
+            ) {
                 Text(
-                    if (busy) "Удаляем…" else "Удалить",
+                    when {
+                        busy -> "Удаляем…"
+                        viaVk -> "Подтвердить через VK"
+                        else -> "Удалить"
+                    },
                     style = DesignType.ButtonLabel,
-                    color = if (password.isNotEmpty() && !busy) DesignPalette.Expense else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (ready) DesignPalette.Expense else MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
             }
@@ -386,4 +346,3 @@ internal fun DeleteAccountDialog(
         },
     )
 }
-

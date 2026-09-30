@@ -809,70 +809,119 @@ inside the content margins. Cards, headers and metric tiles are imported from
   into a store the app was not taken from otherwise, and the card between «Как
   пользоваться» and «Расскажите, чего не хватает» simply closes up.
 
-## The profile screen: optional registration
+## The profile screen: the account's face
 
-`ui/profile/ProfileScreen.kt` + `ProfileViewModel.kt`, reached from the first item of the
-start screen's app menu («Профиль», above a divider — the one item about the person rather
+`ui/profile/ProfileScreen.kt` + `ProfileViewModel.kt` (the profile) and `AccountSheet.kt` +
+`AccountViewModel.kt` (the email form and account deletion), reached from the first item of
+the start screen's app menu («Профиль», above a divider — the one item about the person rather
 than the farm) and from `NameCard` in «Аналитика». Same `MenuScreen` silhouette as the rest
-of the menu. The storage and SDK rules are in the root `CLAUDE.md` («Profile and VK ID»);
-what matters on the screen:
+of the menu. **The profile is the account** — the storage and server rules are in the root
+`CLAUDE.md` («Profile and VK ID», «Account»); what matters on the screen:
 
-- **Two faces, decided by `User.hasProfile`.** A guest sees `GuestCard` — a «?» avatar, «Вы
-  пользуетесь приложением без профиля» and, *before* any button, «регистрация
-  необязательна»: someone opening the item out of curiosity must not leave thinking the app
-  without an account is a trimmed one. Then «Войти через VK ID» (only when `VkId.isAvailable`)
-  and «Заполнить вручную», which is accent-filled when it is the only button and the quiet
-  `IncomeSurface` one when VK stands above it. A profile sees `ProfileCard` (72 dp avatar,
-  name, «хозяйство · город», a «VK ID» badge), `VkCard`, a red `DeleteProfileCard`, and the
-  privacy line.
-- **Manual registration is the edit dialog with `creating = true`** — one `ProfileEditDialog`
-  for both, its draft in `rememberSaveable` inside the dialog so a rotation mid-typing keeps
-  it. **The name is required always, VK or not** (`canSave`, and `ProfileViewModel.save`
-  refuses a nameless row too, because a composition can outlive its state): a profile whose
-  name was erased and then unlinked from VK would fall back to the guest card while its farm,
-  city and photo stayed in the row — invisible and undeletable. For the same reason VK with
-  no first or last name fills «Пользователь VK». The dialog fixes «Новый профиль / Создать»
-  at the moment it opens (`creatingNow`): Room answers the save before the `Saved` effect
-  closes it, and a live flag flipped the title for a frame.
-- **VK fills only empty fields.** A name the person typed is their choice and linking VK is
-  no reason to overwrite it; for a guest everything is empty, so VK registration fills the
-  whole profile. The photo is downloaded once and stored as bytes — the VK URL expires, and an
-  offline app must show the avatar offline.
-- **The row is written first, VK is told second.** Unlink and delete write the database at
-  once and send the VK logout (a network call the SDK makes under its own lock) to a scope
-  that outlives the screen, with a 15 s cap; waiting for it first meant an offline delete sat
-  for the whole timeout, and leaving the screen cancelled it before the row was touched. The
-  write after a successful VK login is `NonCancellable` for the mirror reason: the token is
-  already with the SDK.
-- **«Выйти из VK» keeps name and photo; «Удалить профиль» wipes the row.** Both ask first
-  (`ConfirmDialog`); the delete dialog says the farm stays, and so does the card before it —
-  unlike «Удалить все данные», which it resembles in colour and not in consequence. `VkCard`
-  shows even in a build without VK keys when the profile is linked (it may have arrived in an
-  imported database): leaving must always be possible, linking only where there is a way to.
+- **Three faces, decided by `AccountState`.** `Checking` is a loader (a signed-in person must
+  not flash the invitation). `SignedOut` is `SignedOutCard` — a «?» avatar, «Войдите, чтобы
+  завести профиль» with «необязательно — инкубаторы и закладки работают и без него» *before*
+  the buttons, then «Войти через VK ID» (only when `VkId.isAvailable`), accent «Войти по
+  почте» and quiet «Создать аккаунт». `SignedIn` is `ProfileCard` — 72 dp avatar, the name
+  with `PremiumBadge` beside it, «хозяйство · город», how the sign-in was made (the
+  email, or a «VK ID» badge) and «Изменить профиль» — plus «Выйти из аккаунта», a
+  full-width button with no card of its own (one button in a frame read as a section it is
+  not). **The header has no subtitle at all**: signed in, the name stands in the card right below it; signed out, the invitation card itself says signing in is optional. **There are no photo buttons**:
+  tapping the avatar opens a `DropdownMenu` anchored to it — «Загрузить фото» / «Изменить фото» (the system photo picker) and, when there is a photo, «Удалить фото» in red.
+  `Unavailable` (no server in the build) is `UnavailableCard` — the profile cannot exist
+  without an account, and the screen says so instead of offering a door that leads nowhere.
+  **No text on the screen mentions that the account is shared with «Моё хозяйство»** — the
+  owner asked for that; the fact is documented here and in the root file, not told to the
+  person.
+- **The subscription badge is the server's word** (`GET /me` → `subscription`,
+  `AccountRepository.subscription`, refreshed on every sign-in, at launch and each time the
+  screen opens, since payment may happen in the other app a minute earlier), and **only
+  «Premium» is ever shown** — a gold chip with a crown for an active subscription and
+  nothing otherwise; there is no «Без подписки» (the owner asked for that: its absence is
+  the answer, and the space goes to the offer below). It sits in a `FlowRow` with the name,
+  so a long name pushes it to the next line rather than being squeezed by it. **The term
+  is a separate line under the email** — «Premium действует до dd.MM.yyyy» (`premiumUntil`,
+  the local date of `expiresAt`) — not inside the chip, where it would push the chip off the
+  name's line; no readable date, no line.
+- **«Купить Premium» stands between the profile card and «Выйти», only when the server has
+  said «no subscription»** (`offersPremium`: known and inactive) — while the answer is
+  unknown (offline, loading) there is no offer, since offering to sell to someone who may
+  have just paid would be wrong. It is a dark plaque with gold, the palette of the sheet it
+  opens. `showsPremiumBadge` / `offersPremium` / `premiumUntil` are pinned by `PremiumTest`.
+- **`PremiumSheet` is the offer, the payment and the thanks in one sheet** (`PremiumStage`:
+  Offer → Waiting → Done). Its palette is its own and the same in both themes (warm
+  near-black and gold, private constants in `PremiumSheet.kt`) — a showcase, like the white
+  QR card, not part of the working screen; the app's green is deliberately absent, since it
+  means «running», not «special». Offer: a crown emblem with a breathing glow, «Инкубатор
+  Premium» in a gold gradient, two benefit cards — «Без рекламы» and «Резервные копии на
+  сервере» (the owner's wording of what Premium gives) — the plans from
+  `GET /subscription/plans` as radio cards (the longest selected by default and marked
+  «Выгоднее», with «≈ N ₽ в месяц» under a long ruble plan, `monthlyHint`), and a gold
+  «Оформить Premium» with a shine sweeping across it (drawn in `drawWithContent`, so only
+  the layer redraws). **The payment is the server's contract**: `POST /subscription/checkout`
+  → the `confirmationUrl` opens in the browser (`ACTION_VIEW`) → `PremiumViewModel` polls
+  `GET /subscription/payments/{id}` every 2.5 s for up to 10 min and at once on every return
+  to the app (`LifecycleResumeEffect`), until `succeeded` (Done) or `canceled` (back to the
+  offer with «деньги не списаны»). The payment's `subscription` goes straight into
+  `AccountRepository.subscription`, so the badge appears and the button disappears without a
+  separate `GET /me`. **`PremiumViewModel` belongs to the screen, not to the sheet**: the
+  poll must survive the trip to the browser and a sheet closed by accident — reopened, it is
+  still waiting. The sheet sits under the status bar (`statusBarsPadding`): dark behind the
+  bar, the bar's dark icons would vanish. **Premium switches the ads off** (root
+  `CLAUDE.md`, «Ads … Premium»), and the Done text says so; **server backups are not built
+  yet**, so the Done text does not mention them. On a local server (`PAYMENTS_PROVIDER` unset → mock)
+  the payment page is `localhost:3000/…/mock/…/pay`; `adb reverse tcp:3000 tcp:3000` lets the
+  emulator's browser reach it. AppMetrica: `PREMIUM_OPENED` → `PREMIUM_CHECKOUT` («Тариф») →
+  `PREMIUM_PURCHASED` («Тариф»).
+- **A signed-in account with no name opens «Новый профиль» at once** — after a registration
+  (`AccountEffect.SignedIn(needsName)`) or a VK sign-in (`ProfileEffect.SignedInWithVk`) when
+  neither the server nor VK had a name. The edit dialog is the same for both cases
+  (`creating` fixes «Новый профиль / Готово» at the moment it opens). **The name is saved on
+  the server first**: while the request runs the button reads «Сохраняем…» and is disabled
+  (`busy`), and a refusal is shown inside the dialog (`error`, the screen's `notice`), which
+  stays open — closing it would pretend the name was saved. Farm and city are phone-only and
+  saved together with it. **Under the fields, centred, stands «Удалить аккаунт»** in red, which closes the
+  dialog and opens `DeleteAccountDialog` — a rare, irreversible action belongs where one goes
+  to change things, not on the main card in front of everybody.
+- **Logout asks first, and says what goes**: the profile is erased from the phone, the name
+  returns with the next sign-in, farm, city and photo have to be entered again, the farm
+  stays. `DeleteAccountDialog` says the account is removed from the server for good and the
+  profile from the phone; for an email account it asks for the password, for a VK account
+  (`viaVk`) its button is «Подтвердить через VK» and opens VK's window — a cancelled window
+  leaves the dialog as it was.
+- **The email form is one sheet, five steps** (`AccountStep`: Login, Register, Verify,
+  Forgot, Reset) switched inside `AccountSheet`, never separate sheets: the email typed on
+  the first step is needed on all the others. Links under the button move between them. **The
+  password lives only in `AccountViewModel`** — not in `rememberSaveable`, whose Bundle the
+  system writes to disk; `DeleteAccountDialog` keeps its password in a plain `remember`.
+  There is no «unverified account» state: Verify is reached from Register alone, and
+  «Отправить код ещё раз» repeats the registration with the password kept in memory. The
+  info lines after registering and after `forgot` say «если» — the server does not reveal
+  whether an address exists. The password hint names the whole server rule: from 8
+  characters, a letter and a digit. `SheetTextField` gained `keyboardType` and
+  `visualTransformation` for these fields; the password field has a «Показать» toggle.
+  **Registration asks for the password twice** («Повторите пароль», `AccountFormState.passwordRepeat`):
+  the field is masked, and a typo in it would otherwise surface only at the first login.
+  «Пароли не совпадают» appears under the second field as soon as it holds something that
+  differs, and «Создать аккаунт» stays disabled until both match (`passwordsMatch`). The reset
+  step asks once — a mistake there costs one more code, not an account.
 - **The VK button is VK's blue (`VkBlue`, 0xFF0077FF), not a theme token**, with a drawn
   «VK» mark rather than the SDK's One Tap composable: that artifact pulls Coil, multibranding
-  and group subscription for one button. Busy (`state.busy`) replaces the label with a spinner
-  and disables the VK buttons; everything else stays live, and the ViewModel keeps it
-  consistent — every change is a read-modify-write of the one row under a `Mutex`, so a city
-  saved while the VK photo downloads is not overwritten by the login's stale copy.
+  and group subscription for one button. Busy (`state.busy` or the form's) replaces the label
+  with a spinner and disables the sign-in buttons.
 - **Errors are a `NoticeCard` in `Expense` red at the top, dismissed by «Понятно»**; a
   cancelled VK window is not an error and shows nothing. The avatar is picked with the system
   photo picker (`PickVisualMedia`, no permission) and normalised by `profile/AvatarImage`.
   The avatar on screen is decoded once per *content* (`remember(contentHashCode)`), not per
   array — Room hands out a new array on every answer — and anything over 512 px, which only a
   foreign database can hold, is decoded downsampled.
-
-### The «Аккаунт» card and sheet
-
-`AccountCard` sits under the profile's main card (under `GuestCard` for a guest, under `VkCard` otherwise) and is absent when the build has no server (`AccountState.Unavailable`). Signed out: a short line on what an account is for today, accent «Войти по почте», quiet «Создать аккаунт». Signed in: the email, «Выйти из аккаунта», and «Удалить аккаунт» as a red *text* button — the red filled slab below belongs to «Удалить профиль», and two red slabs in a row read as one action.
-
-- **One sheet, five steps** (`AccountStep`: Login, Register, Verify, Forgot, Reset) switched inside `AccountSheet`, never separate sheets: the email typed on the first step is needed on all the others. Links under the button move between them («Нет аккаунта? Создать», «Забыли пароль?», «Назад ко входу»).
-- **The password lives only in `AccountViewModel`** — not in `rememberSaveable`, whose Bundle the system writes to disk. A rotation keeps it (the ViewModel survives), process death drops it, and that is correct. `DeleteAccountDialog` keeps its password in a plain `remember` for the same reason.
-- **There is no «unverified account» state**: on `server_ferma` an account exists only after the code, so Verify is reached from Register alone, and «Отправить код ещё раз» repeats the registration with the password kept in memory. The line after registering says the code may not come if the address is already registered (the server sends a «вы уже зарегистрированы» letter instead), and the line after `forgot` says «если» — the server does not reveal whether the address exists.
-- **Both texts about the account say it is shared with «Моё хозяйство»** — the signed-out card (registered in one, signed in to both) and `DeleteAccountDialog` (deleting it deletes it there too). The password hint under the field names the whole rule the server enforces: from 8 characters, a letter and a digit.
-- **A new account for a guest opens «Новый профиль»** (`AccountEffect.SignedIn(newAccount = true)` while `!user.hasProfile`): the account asks for no name, and «you are signed in» without one reads as half done.
-- `SheetTextField` gained `keyboardType` and `visualTransformation` parameters for these fields; defaults keep every other caller as it was. The password field has a «Показать» toggle — a typo in a masked field on a phone is invisible otherwise.
-- The privacy line at the bottom changes with the server: with one it says that only email and password go there and the farm stays on the phone; without one it keeps «сервера у приложения нет». A privacy promise the app contradicts is worse than none.
+- **The privacy line at the bottom states exactly what goes where**: email, password and name
+  are on the server; photo, farm, city and all incubators stay on this phone; with VK in the
+  build, that VK gives only a name and a photo. A privacy promise the app contradicts is worse
+  than none.
+- **«Аналитика»'s `NameCard` follows the same rule**: signed out it reads «Профиль · Войдите в
+  аккаунт — необязательно» (`AnalyticsUiState.signedIn`), whatever the row holds; signed in,
+  the name or «Имя не указано». Either way it opens this screen.
 
 ## The guide: «Как пользоваться»
 
@@ -954,3 +1003,14 @@ Ads used to be a sticky strip in the root `Scaffold`'s `bottomBar`; they are now
 - **Nothing until `MobileAdsSdk.ready`.** The composable starts the SDK from a `LaunchedEffect` and returns nothing until the init callback flips the flow; the app-open ad usually gets there first, and the banner just finds it ready.
 - **The ad follows the theme.** `AdRequest.Builder(...).setPreferredTheme(AdTheme.LIGHT / DARK)` is asked for from `LocalDesignPalette` being `DarkDesignColors` — the same source the card itself is painted from — and the view is `key`ed on it too, so switching «Оформление» re-requests the banner rather than leaving a white ad in a dark list. The app-open ad does the same through `MobileAdsSdk.adThemeFor(context, settings.themeMode)`, reading the app's own night configuration for «Системная».
 - **One card per screen, and the view outlives the card.** `rememberBannerAdHost()` is called at screen level and handed to `AdBanner`; the `BannerAdView` lives in that host and the card only borrows it, so a `LazyColumn` item scrolled away or a pager page swiped off does not re-request the ad when it comes back (the first version made six requests per two impressions on a walk across the incubator's tabs). Because one `View` cannot have two parents while a swipe has two pages composed, **each page of a pager gets its own host** — three on the incubator screen, two on «Аналитика», all declared at screen level. **A list that repeats the banner needs one host per slot, and that is `BannerAdHosts`** (`rememberBannerAdHosts()`), a map from slot number to host, again held by the screen. All of this costs nothing until it is reached: a host holds no view until `AdBanner` first composes inside it, so a tab nobody opens and a slot nobody scrolls to never request an ad. `loadedFor` in the host is the key (width + theme) the ad was loaded under, compared with the card's current key — so a rotation or theme switch reads as «not loaded» by itself, with no state reset from inside `AndroidView.factory`.
+
+## Stories: the row and the viewer
+
+`ui/stories/` — `StoriesRow`, `StoryViewer`, `StoriesViewModel` (a list-screen MVI over `StoriesRepository.feed`, registered in the factory). Data rules are in the root `CLAUDE.md`, «Stories on the start screen».
+
+- **The row is the first item of the start screen's first page, not part of the fixed header.** Stories are glanced at once a day, the list every time, and the row leaves with the first scroll, handing its ~110 dp back. Not on the «Архивные» page and not over the loader. `Modifier.bleed(screenPadding)` stretches the `LazyRow` past the list's 20 dp side padding so it scrolls edge to edge while the first circle still stands on the cards' line.
+- **Unviewed wears a gradient ring from `Accent` to `DateEmphasis`, viewed a `CardBorder` ring and a muted caption** — the app's own pair rather than the Instagram rainbow, which beside the cards would read as an ad. The caption is two lines of `Micro` with `Hyphens.Auto`: «Овоскопирование» otherwise broke as «Овоскопиров / ание». No picture yet (or none at all) shows the title's first letter, so a circle is never empty.
+- **The viewer is a full-screen `Dialog` in black with the status bar hidden**, like the scanner a showcase with its own rules. Gestures are the universal ones: tap right third+ → next slide, left 30 % → previous (previous story from the first slide), hold → pause (`onLongPress = {}` so the release does not also page), swipe sideways → neighbouring story (`HorizontalPager`), drag down past 140 dp → close. The last slide of the last story closes it.
+- **A slide runs only while it is actually seen**: `running = active && ready && !held && !completed`, where `active` also requires the page settled, no drag in progress and the lifecycle `RESUMED` — a story must not finish itself while the person reads the site its button opened, or the view would be reported on their behalf. The progress is an `Animatable` restarted with the *remaining* time after a pause, and the segments read it in `drawBehind` so a frame of progress redraws nothing else.
+- **The feed is snapshotted when the viewer opens** — a server answer mid-viewing would otherwise reorder the pages under the finger — and the open story is saved by id, not index. A completed story revisited by swiping back restarts from its first slide; otherwise the empty rest of its last slide would «complete» it again and page on at once. The next image slide is preloaded while the current one runs.
+- **The button** opens `ACTION_VIEW`; an `incubator://` link is pinned to our package and closes the viewer, since it navigates the screen underneath.

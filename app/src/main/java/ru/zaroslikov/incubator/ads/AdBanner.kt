@@ -257,6 +257,10 @@ fun AdBannerAfter(
 @Composable
 fun AdBanner(host: BannerAdHost, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    // Premium: ни карточки, ни заказа, ни SDK. Проверка до `start`, иначе SDK поднимался
+    // бы ради баннера, которого не будет.
+    val adFree by AdFree.active.collectAsState()
+    if (adFree) return
     val sdkReady by MobileAdsSdk.ready.collectAsState()
     // Побочное действие — не в композиции: она может повториться сколько угодно раз.
     LaunchedEffect(Unit) { MobileAdsSdk.start(context) }
