@@ -359,6 +359,10 @@ fun SheetTextField(
     // день: рамка и текст остаются свои, меняется только фон — поле по-прежнему
     // вводят. `null` — обычное белое поле.
     containerColor: Color? = null,
+    // Клавиатура и маска — для полей почты и пароля в «Аккаунте». По умолчанию то же,
+    // что было: цифры для числового поля, текст для остальных, без маски.
+    keyboardType: KeyboardType = if (numeric) KeyboardType.Number else KeyboardType.Text,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -392,9 +396,10 @@ fun SheetTextField(
         interactionSource = interactionSource,
         keyboardOptions = KeyboardOptions(
             capitalization = capitalization,
-            keyboardType = if (numeric) KeyboardType.Number else KeyboardType.Text,
+            keyboardType = keyboardType,
             imeAction = imeAction,
         ),
+        visualTransformation = visualTransformation,
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = minHeight),
@@ -404,7 +409,7 @@ fun SheetTextField(
                 innerTextField = innerTextField,
                 enabled = enabled,
                 singleLine = singleLine,
-                visualTransformation = VisualTransformation.None,
+                visualTransformation = visualTransformation,
                 interactionSource = interactionSource,
                 placeholder = {
                     Text(

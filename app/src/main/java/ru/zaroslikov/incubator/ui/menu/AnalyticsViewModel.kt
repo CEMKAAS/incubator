@@ -7,7 +7,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import ru.zaroslikov.incubator.domain.model.BatchStatus
 import ru.zaroslikov.incubator.domain.model.User
 import ru.zaroslikov.incubator.domain.model.status
@@ -19,14 +18,12 @@ import ru.zaroslikov.incubator.domain.stats.incubatorStats
 import ru.zaroslikov.incubator.ui.mvi.MviSharing
 import ru.zaroslikov.incubator.ui.mvi.MviViewModel
 
-sealed interface AnalyticsIntent {
-    /**
-     * Сохранить имя владельца — единственное, что экран здесь пишет.
-     *
-     * Пустое имя — законное значение: так его и стирают.
-     */
-    data class SaveName(val name: String) : AnalyticsIntent
-}
+/**
+ * Интентов у «Аналитики» нет: экран только читает хозяйство. Имя владельца, которое он
+ * раньше правил сам, переехало в «Профиль» вместе с остальными полями профиля.
+ * Интерфейс объявлен по той же причине, что и [AnalyticsEffect].
+ */
+sealed interface AnalyticsIntent
 
 /**
  * Эффектов у «Аналитики» нет, и интерфейс всё равно объявлен.
@@ -38,7 +35,7 @@ sealed interface AnalyticsIntent {
 sealed interface AnalyticsEffect
 
 /**
- * «Аналитика»: всё хозяйство одним счётом, плюс имя владельца.
+ * «Аналитика»: всё хозяйство одним счётом, плюс имя владельца (только для показа).
  *
  * Считает ровно теми же функциями `:domain`, что и экран одного инкубатора, — им
  * безразлично, из одного устройства список закладок или из пяти. Это не экономия строк,
@@ -100,22 +97,7 @@ class AnalyticsViewModel(
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, MviSharing.WhileVisible, AnalyticsUiState())
 
-    override fun onIntent(intent: AnalyticsIntent) {
-        when (intent) {
-            is AnalyticsIntent.SaveName -> saveName(intent.name)
-        }
-    }
-
-    /**
-     * Сохраняет имя владельца.
-     *
-     * Пробелы по краям срезаются: «Семён » и «Семён» — одно имя, а хранить их как разные
-     * значило бы показывать в шапке лишний отступ и не находить одного через другое,
-     * когда имя однажды понадобится для чего-то ещё.
-     */
-    private fun saveName(name: String) {
-        viewModelScope.launch { itemsRepository.saveUser(User(name.trim())) }
-    }
+    override fun onIntent(intent: AnalyticsIntent) = Unit
 }
 
 @Immutable

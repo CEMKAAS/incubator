@@ -16,6 +16,8 @@ import ru.zaroslikov.incubator.ui.batch.FinishGroupViewModel
 import ru.zaroslikov.incubator.ui.menu.AnalyticsViewModel
 import ru.zaroslikov.incubator.ui.menu.SettingsViewModel
 import ru.zaroslikov.incubator.ui.qr.IncubatorQrViewModel
+import ru.zaroslikov.incubator.ui.profile.AccountViewModel
+import ru.zaroslikov.incubator.ui.profile.ProfileViewModel
 import ru.zaroslikov.incubator.ui.qr.ScanQrViewModel
 import ru.zaroslikov.incubator.ui.species.CustomSpeciesViewModel
 import ru.zaroslikov.incubator.ui.start.StartScreenViewModel
@@ -110,6 +112,20 @@ object AppViewModelProvider {
             IncubatorQrViewModel(
                 inventoryApplication(),
                 inventoryApplication().container.itemsRepository
+            )
+        }
+
+        initializer {
+            ProfileViewModel(
+                inventoryApplication(),
+                inventoryApplication().container.itemsRepository,
+                inventoryApplication().container.account
+            )
+        }
+
+        initializer {
+            AccountViewModel(
+                inventoryApplication().container.account
             )
         }
 

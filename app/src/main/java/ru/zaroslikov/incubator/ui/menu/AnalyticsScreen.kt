@@ -12,22 +12,14 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -36,7 +28,6 @@ import ru.zaroslikov.incubator.ads.rememberBannerAdHost
 import ru.zaroslikov.incubator.R
 import ru.zaroslikov.incubator.ui.AppViewModelProvider
 import ru.zaroslikov.incubator.design.components.LoadingBox
-import ru.zaroslikov.incubator.design.components.SheetTextField
 import ru.zaroslikov.incubator.design.components.SlidingTab
 import ru.zaroslikov.incubator.design.components.SlidingTabSwitcher
 import ru.zaroslikov.incubator.ui.incubator.FinanceTab
@@ -78,6 +69,7 @@ private val analyticsTabs = AnalyticsTab.entries.map { SlidingTab(it.title, it.i
 @Composable
 fun AnalyticsScreen(
     navigateBack: () -> Unit,
+    navigateToProfile: () -> Unit,
     viewModel: AnalyticsViewModel = viewModel(factory = AppViewModelProvider.Factory),
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
@@ -86,7 +78,6 @@ fun AnalyticsScreen(
     // уходит из композиции при свайпе, см. BannerAdHost.
     val statsAdHost = rememberBannerAdHost()
     val financeAdHost = rememberBannerAdHost()
-    var editingName by rememberSaveable { mutableStateOf(false) }
     val pagerState = rememberPagerState(pageCount = { AnalyticsTab.entries.size })
     val scope = rememberCoroutineScope()
 
@@ -101,7 +92,7 @@ fun AnalyticsScreen(
     ) {
         NameCard(
             name = uiState.user.name,
-            onEdit = { editingName = true },
+            onEdit = navigateToProfile,
         )
 
         SlidingTabSwitcher(
@@ -143,16 +134,6 @@ fun AnalyticsScreen(
         }
     }
 
-    if (editingName) {
-        NameDialog(
-            initial = uiState.user.name,
-            onDismiss = { editingName = false },
-            onSave = {
-                viewModel.onIntent(AnalyticsIntent.SaveName(it))
-                editingName = false
-            },
-        )
-    }
 }
 
 /**
@@ -222,12 +203,13 @@ private fun AnalyticsPage(content: @Composable ColumnScope.() -> Unit) {
 
 
 /**
- * Карточка с именем.
+ * Карточка с именем — вход в «Профиль».
  *
  * Дублирует заголовок шапки намеренно: в шапке имя — подпись под зелёным, и что оно
- * правится, оттуда не видно. Здесь же стоит строка с действием, а когда имени нет —
- * прямая просьба его ввести: пустая шапка «Ваше хозяйство» сама по себе не выглядит
- * незаполненной графой.
+ * правится, оттуда не видно. Здесь же стоит строка с действием, а когда профиля нет —
+ * приглашение его завести. Своего окна правки у «Аналитики» больше нет: имя — часть
+ * профиля, и второе место, где его можно поменять, было бы вторым ответом на вопрос,
+ * какое из двух главнее.
  */
 @Composable
 private fun NameCard(name: String, onEdit: () -> Unit) {
@@ -240,83 +222,12 @@ private fun NameCard(name: String, onEdit: () -> Unit) {
         MenuRow(
             title = name.ifBlank { "Как вас зовут?" },
             description = if (name.isBlank()) {
-                "Имя нужно только приложению — оно никуда не уходит"
+                "Профиль необязателен — он хранится только на телефоне"
             } else {
                 "Владелец хозяйства"
             },
             onClick = onEdit,
         )
     }
-}
-
-/**
- * Имя ограничено 20 символами.
- *
- * Оно печатается там, где место отмерено заранее — в строке карточки и в заголовке
- * шапки, — и строка длиннее вытеснила бы то, ради чего экран открывают. Лишнее
- * отсекается (`take`), а не отвергается целиком: вставленная из буфера строка попадает
- * в поле обрезанной, вместо того чтобы не появиться вовсе и выглядеть сломанной вставкой.
- */
-private const val NameMaxLength = 20
-
-@Composable
-private fun NameDialog(
-    initial: String,
-    onDismiss: () -> Unit,
-    onSave: (String) -> Unit,
-) {
-    var value by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.background,
-        title = {
-            Text(
-                text = "Ваше имя",
-                style = DesignType.SheetTitle,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        },
-        text = {
-            Column {
-                SheetTextField(
-                    value = value,
-                    onValueChange = { value = it.take(NameMaxLength) },
-                    placeholder = "Иван Иванов",
-                    capitalization = KeyboardCapitalization.Words,
-                    imeAction = ImeAction.Done,
-                )
-                Spacer(Modifier.height(6.dp))
-                // Счётчик — объяснение, а не украшение: без него двадцать первый символ
-                // просто не появляется, и поле выглядит переставшим отвечать. На пределе
-                // он зелёный: это не ошибка — набрано ровно столько, сколько помещается,
-                // — а красный в этом приложении означает потерю.
-                val full = value.length >= NameMaxLength
-                Text(
-                    text = "${value.length} / $NameMaxLength",
-                    style = DesignType.Micro,
-                    color = if (full) {
-                        DesignPalette.Accent
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.align(Alignment.End),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(value) }) {
-                Text("Сохранить", style = DesignType.ButtonLabel, color = DesignPalette.Accent)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(
-                    "Отмена",
-                    style = DesignType.ButtonLabel,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-    )
 }
 

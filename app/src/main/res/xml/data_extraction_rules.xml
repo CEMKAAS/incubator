@@ -6,11 +6,17 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="device_prefs.xml" />
+        <exclude domain="sharedpref" path="vkid_encrypted_shared_prefs.xml" />
+        <exclude domain="sharedpref" path="account_prefs.xml" />
+        <exclude domain="sharedpref" path="ru.zaroslikov.incubator_preferences.xml" />
         <exclude domain="database" path="incubator_database-wal" />
         <exclude domain="database" path="incubator_database-shm" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="device_prefs.xml" />
+        <exclude domain="sharedpref" path="vkid_encrypted_shared_prefs.xml" />
+        <exclude domain="sharedpref" path="account_prefs.xml" />
+        <exclude domain="sharedpref" path="ru.zaroslikov.incubator_preferences.xml" />
         <exclude domain="database" path="incubator_database-wal" />
         <exclude domain="database" path="incubator_database-shm" />
     </device-transfer>

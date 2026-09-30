@@ -32,7 +32,7 @@ import ru.zaroslikov.incubator.data.entity.ValueEntity
         CustomSpeciesEntity::class,
         CustomSpeciesDayEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = true
 )
 abstract class InventoryDatabase : RoomDatabase() {
@@ -895,6 +895,26 @@ abstract class InventoryDatabase : RoomDatabase() {
         }
 
         /**
+         * Профиль владельца: к имени в `User` добавляются хозяйство, город, аватар и
+         * идентификатор VK.
+         *
+         * Четыре обычных `ADD COLUMN`, без переноса данных: ничего из этого раньше не
+         * хранилось. Текстовые колонки — `NOT NULL DEFAULT ''`, как пустое имя: «не
+         * заполнено» здесь пустая строка, а не `NULL`, и у сущности тот же
+         * `defaultValue`, иначе Room не сойдётся со схемой. `Avatar` и `VkUserId`
+         * допускают `NULL` — «фото нет» и «VK не привязан» это отсутствие значения, а не
+         * пустой массив байтов и не нулевой идентификатор.
+         */
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `User` ADD COLUMN `Farm` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `User` ADD COLUMN `City` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `User` ADD COLUMN `Avatar` BLOB")
+                db.execSQL("ALTER TABLE `User` ADD COLUMN `VkUserId` INTEGER")
+            }
+        }
+
+        /**
          * Закрывает открытую базу и забывает её.
          *
          * Нужно ровно одному месту — импорту базы из файла: подменить файл под открытым
@@ -972,6 +992,7 @@ abstract class InventoryDatabase : RoomDatabase() {
                     MIGRATION_15_16,
                     MIGRATION_16_17,
                     MIGRATION_17_18,
+                    MIGRATION_18_19,
                 )
     }
 }

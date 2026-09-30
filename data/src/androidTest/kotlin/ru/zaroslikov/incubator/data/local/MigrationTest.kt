@@ -315,6 +315,33 @@ class MigrationTest {
     }
 
     /**
+     * Имя владельца переживает добавление колонок профиля, а новые колонки у старой
+     * строки — пустые строки и `NULL`, то есть «не заполнено» и «VK не привязан».
+     */
+    @Test
+    fun migrate18To19_addsProfileColumns_andKeepsTheName() {
+        helper.createDatabase(TEST_DB, 18).use { db ->
+            db.execSQL("INSERT INTO User (_id, Name) VALUES (1, 'Семён')")
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            TEST_DB,
+            19,
+            /* validateDroppedTables = */ true,
+            InventoryDatabase.MIGRATION_18_19,
+        )
+
+        db.query("SELECT Name, Farm, City, Avatar, VkUserId FROM User WHERE _id = 1").use { cursor ->
+            assertTrue("строка владельца пропала при миграции", cursor.moveToFirst())
+            assertEquals("Семён", cursor.getString(0))
+            assertEquals("", cursor.getString(1))
+            assertEquals("", cursor.getString(2))
+            assertTrue("у старого профиля не должно быть фото", cursor.isNull(3))
+            assertTrue("старый профиль не должен считаться привязанным к VK", cursor.isNull(4))
+        }
+    }
+
+    /**
      * `DATABASE_VERSION` в `DatabaseTransfer` — ручной дубликат `@Database(version)`, и
      * связи между двумя числами нет никакой. Забыть поднять первое значит начать
      * отвергать при импорте собственный экспорт этой же сборки — и обнаружится это у

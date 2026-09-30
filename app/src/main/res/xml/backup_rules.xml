@@ -13,9 +13,23 @@
    Восстановленные на другом телефоне, они склеили бы две установки в один профиль и
    заставили бы новый телефон считать себя уже виденным. Настройки, которые человек
    выбирал сам (тема, выключатель напоминаний), лежат в app_prefs и едут.
+
+   Хранилища SDK VK ID не едут: токен входа лежит в vkid_encrypted_shared_prefs,
+   зашифрованный ключом из Android Keystore этого телефона, — на другом телефоне ключа
+   нет, и SDK не прочтёт файл (а EncryptedSharedPreferences на таком файле падает).
+   Идентификатор устройства VK пишет в prefs по умолчанию (&lt;пакет&gt;_preferences) — это
+   свойство установки, как device_prefs. Сам профиль (имя, фото, VK id) лежит в базе и
+   едет вместе с ней; войти в VK на новом телефоне придётся заново.
+
+   account_prefs не едет по той же причине: там сессия аккаунта по почте, зашифрованная
+   ключом Keystore этого телефона, — ключ от аккаунта, которому не место ни в облаке,
+   ни на чужом устройстве. На новом телефоне в аккаунт входят заново.
 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="device_prefs.xml" />
+    <exclude domain="sharedpref" path="vkid_encrypted_shared_prefs.xml" />
+    <exclude domain="sharedpref" path="account_prefs.xml" />
+    <exclude domain="sharedpref" path="ru.zaroslikov.incubator_preferences.xml" />
     <exclude domain="database" path="incubator_database-wal" />
     <exclude domain="database" path="incubator_database-shm" />
 </full-backup-content>

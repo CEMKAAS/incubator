@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
@@ -123,6 +124,7 @@ private const val TabsSlideMillis = 180
 @Composable
 fun StartScreen(
     navigateToIncubator: (Long) -> Unit,
+    navigateToProfile: () -> Unit,
     navigateToAnalytics: () -> Unit,
     navigateToSettings: () -> Unit,
     navigateToAbout: () -> Unit,
@@ -205,6 +207,7 @@ fun StartScreen(
             Column(Modifier.padding(horizontal = ScreenPadding)) {
                 Spacer(Modifier.height(8.dp))
                 ScreenHeader(
+                    onProfile = navigateToProfile,
                     onAnalytics = navigateToAnalytics,
                     onScan = navigateToScanner,
                     onSettings = navigateToSettings,
@@ -388,6 +391,7 @@ fun StartScreen(
  */
 @Composable
 private fun ScreenHeader(
+    onProfile: () -> Unit,
     onAnalytics: () -> Unit,
     onScan: () -> Unit,
     onSettings: () -> Unit,
@@ -428,6 +432,13 @@ private fun ScreenHeader(
                 containerColor = DesignPalette.Surface,
                 shape = RoundedCornerShape(16.dp),
             ) {
+                // Профиль — первым и за чертой: единственный пункт меню про человека, а
+                // не про хозяйство. Регистрация необязательна, и пункт лишь предлагает её.
+                AppMenuItem("Профиль", { MenuIcon(Icons.Filled.AccountCircle) }) {
+                    expanded = false
+                    onProfile()
+                }
+                HorizontalDivider(thickness = 0.8.dp, color = DesignPalette.CardBorder)
                 AppMenuItem("Аналитика", { MenuVectorIcon(R.drawable.ic_chart_design) }) {
                     expanded = false
                     onAnalytics()

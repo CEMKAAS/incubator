@@ -32,6 +32,8 @@ import ru.zaroslikov.incubator.ui.menu.AnalyticsDestination
 import ru.zaroslikov.incubator.ui.menu.AnalyticsScreen
 import ru.zaroslikov.incubator.ui.menu.SettingsDestination
 import ru.zaroslikov.incubator.ui.menu.SettingsScreen
+import ru.zaroslikov.incubator.ui.profile.ProfileDestination
+import ru.zaroslikov.incubator.ui.profile.ProfileScreen
 import ru.zaroslikov.incubator.ui.qr.ScanQrDestination
 import ru.zaroslikov.incubator.ui.qr.ScanQrScreen
 import ru.zaroslikov.incubator.ui.start.StartDestination
@@ -180,6 +182,10 @@ fun InventoryNavHost(
                     Analytics.report(Events.OPEN_INCUBATOR)
                     navController.navigate(IncubatorDestination.routeFor(it))
                 },
+                navigateToProfile = {
+                    Analytics.report(Events.OPEN_PROFILE, mapOf("Откуда" to "меню"))
+                    navController.navigate(ProfileDestination.route)
+                },
                 navigateToAnalytics = {
                     Analytics.report(Events.OPEN_ANALYTICS)
                     navController.navigate(AnalyticsDestination.route)
@@ -208,6 +214,19 @@ fun InventoryNavHost(
         // всему хозяйству, а настройки и «О приложении» вообще не зависят от данных.
         composable(route = AnalyticsDestination.route) {
             AnalyticsScreen(
+                navigateBack = { navController.popBackStack() },
+                navigateToProfile = {
+                    Analytics.report(Events.OPEN_PROFILE, mapOf("Откуда" to "аналитика"))
+                    navController.navigate(ProfileDestination.route) { launchSingleTop = true }
+                },
+                contentPadding = contentPadding
+            )
+        }
+
+        // Профиль — необязательная регистрация. Открывается из меню и из карточки имени
+        // в «Аналитике»; аргументов нет, профиль в базе один.
+        composable(route = ProfileDestination.route) {
+            ProfileScreen(
                 navigateBack = { navController.popBackStack() },
                 contentPadding = contentPadding
             )

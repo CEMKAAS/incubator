@@ -81,13 +81,26 @@ fun Candling.toEntity(): CandlingEntity = CandlingEntity(
     id, idPT, day, date, rejected
 )
 
-fun UserEntity.toDomain(): User = User(name)
+fun UserEntity.toDomain(): User = User(
+    name = name,
+    farm = farm,
+    city = city,
+    avatar = avatar,
+    vkUserId = vkUserId,
+)
 
 /**
  * Ключ не переносится, а ставится константой: строка в таблице одна, и её адрес —
  * свойство хранилища, а не факт о пользователе, которому в доменной модели не место.
  */
-fun User.toEntity(): UserEntity = UserEntity(UserEntity.SINGLE_ROW_ID, name)
+fun User.toEntity(): UserEntity = UserEntity(
+    id = UserEntity.SINGLE_ROW_ID,
+    name = name,
+    farm = farm,
+    city = city,
+    avatar = avatar,
+    vkUserId = vkUserId,
+)
 
 /**
  * Дни сортируются здесь, а не запросом: `@Relation` порядок дочерних строк не задаёт,

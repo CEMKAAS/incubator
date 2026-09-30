@@ -39,6 +39,12 @@ rustorePush = "7.4.1"
 camerax = "1.6.1"
 zxing = "3.5.4"
 
+# Вход через VK ID. Только ядро SDK, без готовой кнопки One Tap (`onetap-compose`): та
+# тянет Coil, мультибрендинг и подписку на сообщество — полмегабайта ради одной кнопки,
+# которую экран профиля рисует сам. Лежит не в Maven Central, а в репозитории VK —
+# см. settings.gradle.kts.
+vkid = "2.7.3"
+
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
@@ -87,6 +93,8 @@ androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", 
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+
+vkid = { module = "com.vk.id:vkid", version.ref = "vkid" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

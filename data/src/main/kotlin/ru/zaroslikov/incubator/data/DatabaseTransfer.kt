@@ -38,7 +38,7 @@ const val DATABASE_NAME = "incubator_database"
  * значит начать отвергать собственный экспорт этой же сборки — и узнается это у
  * пользователя, а не на сборке, поэтому пару стережёт `DatabaseVersionTest`.
  */
-const val DATABASE_VERSION = 18
+const val DATABASE_VERSION = 19
 
 /**
  * Первые 16 байт всякого файла SQLite: строка «SQLite format 3» и **нулевой байт**.

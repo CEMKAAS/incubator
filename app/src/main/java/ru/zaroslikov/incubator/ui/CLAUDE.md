@@ -639,10 +639,11 @@ remembering it.
 
 ## The app menu: profile, settings, about
 
-`ui/menu/` holds the three sections behind the hamburger icon in the start screen's
-header — «Аналитика», «Настройки», «О приложении». All three are ordinary navigation
-destinations, not sheets: their content (analytics, an export flow, a block of contacts)
-does not fit the sheet idiom the forms use.
+`ui/menu/` holds three of the sections behind the hamburger icon in the start screen's
+header — «Аналитика», «Настройки», «О приложении»; the fourth, «Профиль», is `ui/profile/`
+(below). All four are ordinary navigation destinations, not sheets: their content
+(analytics, an export flow, a block of contacts, a login) does not fit the sheet idiom
+the forms use.
 
 **They replaced the old info icon and `InfoBottomSheet`.** That sheet showed
 «Инкубатор v1.00» and a button into the VK group — exactly what «О приложении» now says,
@@ -688,20 +689,12 @@ inside the content margins. Cards, headers and metric tiles are imported from
 - **The tab is «Статистика», not «Аналитика».** It would otherwise share a name with the
   screen containing it, and it matches the incubator screen's tab strip, which is the same
   content at a narrower scope.
-- **The owner's name is capped at 20 characters** (`NameMaxLength` in `AnalyticsScreen.kt`),
-  and the cap is on input rather than on save — `NameDialog`'s `onValueChange` takes the
-  first twenty and drops the rest. It is the one free-text field whose value is printed
-  where the width is decided by something else: `NameCard`'s `MenuRow` title. A name of
-  any length would push «Владелец хозяйства» around and ellipsize into saying nothing.
-  Truncating rather than refusing the keystroke is the same choice
-  `CandlingViewModel.updateRejected` makes with its ceiling: a field that silently
-  ignores a paste looks broken, whereas a paste that arrives short shows what happened.
-  A longer name already in the database — from an import, or from before the cap —
-  is left alone until someone edits it. **A «12 / 20» counter under the field is the
-  other half of that**, `DesignType.Micro` right-aligned: without it the twenty-first
-  character simply fails to appear and the field reads as having stopped responding.
-  **At the limit it turns accent green, not red** — nothing went wrong, the name is
-  exactly as long as it fits, and red in this app means a loss.
+- **The owner's name is edited in «Профиль», not here.** `NameCard` in «Аналитика» shows it
+  and opens `ProfileDestination` (event `"Переход в Профиль"`, «Откуда» = «аналитика»);
+  the old `NameDialog` with its 20-character cap and «12 / 20» counter is gone with the
+  `SaveName` intent. The cap is now 40 (`ProfileViewModel.NAME_MAX_LENGTH`): a name
+  coming from VK is «имя фамилия» and twenty did not hold «Константин Константинопольский».
+  Input is still truncated rather than refused, for the same reason as before.
 - **The placeholder is «Иван Иванов».** A placeholder is an example of the *shape* of the
   answer, and a real-looking name — the author's own was there — reads as a value
   somebody already entered, the same trap the incubator form's «Rcom, Блиц…» brand
@@ -815,6 +808,71 @@ inside the content margins. Cards, headers and metric tiles are imported from
   `CLAUDE.md` for the rule and for the three other places it switches off. Both rows lead
   into a store the app was not taken from otherwise, and the card between «Как
   пользоваться» and «Расскажите, чего не хватает» simply closes up.
+
+## The profile screen: optional registration
+
+`ui/profile/ProfileScreen.kt` + `ProfileViewModel.kt`, reached from the first item of the
+start screen's app menu («Профиль», above a divider — the one item about the person rather
+than the farm) and from `NameCard` in «Аналитика». Same `MenuScreen` silhouette as the rest
+of the menu. The storage and SDK rules are in the root `CLAUDE.md` («Profile and VK ID»);
+what matters on the screen:
+
+- **Two faces, decided by `User.hasProfile`.** A guest sees `GuestCard` — a «?» avatar, «Вы
+  пользуетесь приложением без профиля» and, *before* any button, «регистрация
+  необязательна»: someone opening the item out of curiosity must not leave thinking the app
+  without an account is a trimmed one. Then «Войти через VK ID» (only when `VkId.isAvailable`)
+  and «Заполнить вручную», which is accent-filled when it is the only button and the quiet
+  `IncomeSurface` one when VK stands above it. A profile sees `ProfileCard` (72 dp avatar,
+  name, «хозяйство · город», a «VK ID» badge), `VkCard`, a red `DeleteProfileCard`, and the
+  privacy line.
+- **Manual registration is the edit dialog with `creating = true`** — one `ProfileEditDialog`
+  for both, its draft in `rememberSaveable` inside the dialog so a rotation mid-typing keeps
+  it. **The name is required always, VK or not** (`canSave`, and `ProfileViewModel.save`
+  refuses a nameless row too, because a composition can outlive its state): a profile whose
+  name was erased and then unlinked from VK would fall back to the guest card while its farm,
+  city and photo stayed in the row — invisible and undeletable. For the same reason VK with
+  no first or last name fills «Пользователь VK». The dialog fixes «Новый профиль / Создать»
+  at the moment it opens (`creatingNow`): Room answers the save before the `Saved` effect
+  closes it, and a live flag flipped the title for a frame.
+- **VK fills only empty fields.** A name the person typed is their choice and linking VK is
+  no reason to overwrite it; for a guest everything is empty, so VK registration fills the
+  whole profile. The photo is downloaded once and stored as bytes — the VK URL expires, and an
+  offline app must show the avatar offline.
+- **The row is written first, VK is told second.** Unlink and delete write the database at
+  once and send the VK logout (a network call the SDK makes under its own lock) to a scope
+  that outlives the screen, with a 15 s cap; waiting for it first meant an offline delete sat
+  for the whole timeout, and leaving the screen cancelled it before the row was touched. The
+  write after a successful VK login is `NonCancellable` for the mirror reason: the token is
+  already with the SDK.
+- **«Выйти из VK» keeps name and photo; «Удалить профиль» wipes the row.** Both ask first
+  (`ConfirmDialog`); the delete dialog says the farm stays, and so does the card before it —
+  unlike «Удалить все данные», which it resembles in colour and not in consequence. `VkCard`
+  shows even in a build without VK keys when the profile is linked (it may have arrived in an
+  imported database): leaving must always be possible, linking only where there is a way to.
+- **The VK button is VK's blue (`VkBlue`, 0xFF0077FF), not a theme token**, with a drawn
+  «VK» mark rather than the SDK's One Tap composable: that artifact pulls Coil, multibranding
+  and group subscription for one button. Busy (`state.busy`) replaces the label with a spinner
+  and disables the VK buttons; everything else stays live, and the ViewModel keeps it
+  consistent — every change is a read-modify-write of the one row under a `Mutex`, so a city
+  saved while the VK photo downloads is not overwritten by the login's stale copy.
+- **Errors are a `NoticeCard` in `Expense` red at the top, dismissed by «Понятно»**; a
+  cancelled VK window is not an error and shows nothing. The avatar is picked with the system
+  photo picker (`PickVisualMedia`, no permission) and normalised by `profile/AvatarImage`.
+  The avatar on screen is decoded once per *content* (`remember(contentHashCode)`), not per
+  array — Room hands out a new array on every answer — and anything over 512 px, which only a
+  foreign database can hold, is decoded downsampled.
+
+### The «Аккаунт» card and sheet
+
+`AccountCard` sits under the profile's main card (under `GuestCard` for a guest, under `VkCard` otherwise) and is absent when the build has no server (`AccountState.Unavailable`). Signed out: a short line on what an account is for today, accent «Войти по почте», quiet «Создать аккаунт». Signed in: the email, «Выйти из аккаунта», and «Удалить аккаунт» as a red *text* button — the red filled slab below belongs to «Удалить профиль», and two red slabs in a row read as one action.
+
+- **One sheet, five steps** (`AccountStep`: Login, Register, Verify, Forgot, Reset) switched inside `AccountSheet`, never separate sheets: the email typed on the first step is needed on all the others. Links under the button move between them («Нет аккаунта? Создать», «Забыли пароль?», «Назад ко входу»).
+- **The password lives only in `AccountViewModel`** — not in `rememberSaveable`, whose Bundle the system writes to disk. A rotation keeps it (the ViewModel survives), process death drops it, and that is correct. `DeleteAccountDialog` keeps its password in a plain `remember` for the same reason.
+- **There is no «unverified account» state**: on `server_ferma` an account exists only after the code, so Verify is reached from Register alone, and «Отправить код ещё раз» repeats the registration with the password kept in memory. The line after registering says the code may not come if the address is already registered (the server sends a «вы уже зарегистрированы» letter instead), and the line after `forgot` says «если» — the server does not reveal whether the address exists.
+- **Both texts about the account say it is shared with «Моё хозяйство»** — the signed-out card (registered in one, signed in to both) and `DeleteAccountDialog` (deleting it deletes it there too). The password hint under the field names the whole rule the server enforces: from 8 characters, a letter and a digit.
+- **A new account for a guest opens «Новый профиль»** (`AccountEffect.SignedIn(newAccount = true)` while `!user.hasProfile`): the account asks for no name, and «you are signed in» without one reads as half done.
+- `SheetTextField` gained `keyboardType` and `visualTransformation` parameters for these fields; defaults keep every other caller as it was. The password field has a «Показать» toggle — a typo in a masked field on a phone is invisible otherwise.
+- The privacy line at the bottom changes with the server: with one it says that only email and password go there and the farm stays on the phone; without one it keeps «сервера у приложения нет». A privacy promise the app contradicts is worse than none.
 
 ## The guide: «Как пользоваться»
 

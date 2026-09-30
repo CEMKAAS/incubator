@@ -7,6 +7,7 @@ import ru.zaroslikov.incubator.domain.repository.ItemsRepository
 import ru.zaroslikov.incubator.domain.repository.WorkRepository
 import android.app.Application
 import ru.zaroslikov.incubator.MainActivity
+import ru.zaroslikov.incubator.account.AccountRepository
 import ru.zaroslikov.incubator.ads.AppOpenAdController
 import ru.zaroslikov.incubator.airing.AiringTimerController
 import ru.zaroslikov.incubator.rustore.AppUpdateController
@@ -81,6 +82,12 @@ interface AppContainer {
      * приёмник кнопок уведомления достают его отсюда же. См. [AiringTimerController].
      */
     val airingTimer: AiringTimerController
+
+    /**
+     * Аккаунт по почте и паролю. В контейнере по причине [transferController]: выход и
+     * отзыв токена доходят до конца и без экрана. См. [AccountRepository].
+     */
+    val account: AccountRepository
 }
 
 class AppDataContainer(private val application: Application) : AppContainer {
@@ -102,7 +109,7 @@ class AppDataContainer(private val application: Application) : AppContainer {
     }
     override val workRepository: WorkRepository get() = reminderSync
     override val analyticsProfile by lazy {
-        AnalyticsProfile(context, itemsRepository, appSettings)
+        AnalyticsProfile(context, itemsRepository, appSettings) { account.currentState() }
     }
     // Оба lazy: до RuStore приложение доходит не в каждом запуске (процесс напоминания
     // не доходит никогда), а создание менеджера лезет в систему за провайдером магазина.
@@ -112,4 +119,6 @@ class AppDataContainer(private val application: Application) : AppContainer {
     // поднимает ради напоминания, это чтение ни к чему; служба и приёмник, которым
     // контроллер нужен, достают его отсюда и создают при первом обращении.
     override val airingTimer by lazy { AiringTimerController(application, appSettings) }
+    // Lazy: процессу напоминания аккаунт не нужен, а создание читает Keystore.
+    override val account by lazy { AccountRepository(application) }
 }

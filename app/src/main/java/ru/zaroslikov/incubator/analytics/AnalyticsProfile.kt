@@ -1,6 +1,7 @@
 package ru.zaroslikov.incubator.analytics
 
 import android.content.Context
+import ru.zaroslikov.incubator.account.AccountState
 import androidx.core.app.NotificationManagerCompat
 import io.appmetrica.analytics.profile.Attribute
 import io.appmetrica.analytics.profile.UserProfile
@@ -49,6 +50,9 @@ class AnalyticsProfile(
     private val context: Context,
     private val itemsRepository: ItemsRepository,
     private val appSettings: AppSettings,
+    // Лямбда, а не сам репозиторий: создание репозитория читает сессию, и аналитика,
+    // собираемая в onCreate, не должна тянуть его за собой на главном потоке.
+    private val accountState: suspend () -> AccountState,
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -97,6 +101,27 @@ class AnalyticsProfile(
         profile.text(TEMPERATURE_UNIT, appSettings.temperatureUnit.name)
         profile.text(CURRENCY, appSettings.currency.name)
         profile.text(VERSION, BuildConfig.VERSION_NAME)
+        // Прошла ли установка необязательную регистрацию и каким путём. Только сам факт:
+        // ни имя, ни хозяйство, ни город, ни VK id в аналитику не уходят.
+        val user = itemsRepository.getUser().first()
+        // Есть ли аккаунт по почте — да / нет, без самой почты. В сборке без сервера
+        // атрибут снимается: «нет» там было бы не выбором человека, а свойством сборки.
+        profile.text(
+            ACCOUNT,
+            when (accountState()) {
+                is AccountState.SignedIn -> "да"
+                AccountState.SignedOut -> "нет"
+                AccountState.Unavailable, AccountState.Checking -> null
+            },
+        )
+        profile.text(
+            PROFILE,
+            when {
+                user.isVkLinked -> "VK"
+                user.hasProfile -> "вручную"
+                else -> "нет"
+            },
+        )
         profile.apply(Attribute.customBoolean(REMINDERS).withValue(appSettings.remindersEnabled))
 
         // Версия, на которой установку увидели впервые. Не перезаписывается: она и есть
@@ -187,5 +212,7 @@ class AnalyticsProfile(
         const val CURRENCY = "Валюта"
         const val VERSION = "Версия"
         const val FIRST_VERSION = "Первая версия"
+        const val PROFILE = "Профиль"
+        const val ACCOUNT = "Аккаунт"
     }
 }

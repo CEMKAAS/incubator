@@ -8,6 +8,7 @@ import ru.zaroslikov.incubator.di.AppContainer
 import ru.zaroslikov.incubator.di.AppDataContainer
 import ru.zaroslikov.incubator.rustore.IS_RUSTORE_BUILD
 import ru.zaroslikov.incubator.rustore.RuStorePush
+import ru.zaroslikov.incubator.vkid.VkId
 
 class InventoryApplication: Application(), Configuration.Provider  {
 
@@ -33,6 +34,9 @@ class InventoryApplication: Application(), Configuration.Provider  {
         if (IS_RUSTORE_BUILD) {
             RuStorePush.init(this, BuildConfig.RUSTORE_PUSH_PROJECT_ID)
         }
+        // VK ID — вход в необязательный профиль. SDK требует инициализации в
+        // `Application.onCreate`; без ключей в сборке вызов молча ничего не делает, см. VkId.
+        VkId.init(this)
     }
 
     override val workManagerConfiguration: Configuration

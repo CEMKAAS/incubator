@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Сетевые правила релиза: только https. Это и так поведение по умолчанию с API 28, но
+   файл нужен ради отладочной копии в src/debug — манифест ссылается на одно имя, а
+   сборка подставляет свою версию. Открытый http к серверу аккаунтов в релизе — это
+   пароль в открытом виде.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

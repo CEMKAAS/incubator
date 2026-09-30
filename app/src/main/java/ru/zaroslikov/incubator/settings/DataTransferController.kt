@@ -13,10 +13,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import ru.zaroslikov.incubator.data.ImportResult
 import ru.zaroslikov.incubator.data.exportDatabase
 import ru.zaroslikov.incubator.data.importDatabase
 import ru.zaroslikov.incubator.data.wipeDatabase
+import ru.zaroslikov.incubator.vkid.VkId
 import java.io.File
 import kotlin.system.exitProcess
 
@@ -203,6 +205,11 @@ class DataTransferController(private val application: Application) {
                 },
             )
             _state.value = next
+            // «Удалить всё» стирает и профиль, а токен VK лежит не в базе, а у SDK.
+            // Выход — попутно с паузой перед перезапуском и не дольше неё: оставшийся
+            // токен безвреден (следующий вход его перепишет), а задерживать перезапуск
+            // ради сети незачем.
+            launch { withTimeoutOrNull(RESTART_DELAY_MILLIS) { VkId.logout() } }
             delay(RESTART_DELAY_MILLIS)
             withContext(Dispatchers.Main) { restart() }
         }

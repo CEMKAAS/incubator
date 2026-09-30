@@ -33,6 +33,44 @@ val rustorePushProjectId: String = run {
     (fromLocal ?: project.findProperty("rustorePushProjectId") as? String).orEmpty().trim()
 }
 
+/**
+ * Свойство сборки: сначала `local.properties`, потом обычное свойство Gradle — тот же
+ * порядок и по той же причине, что у [rustorePushProjectId].
+ */
+fun buildInput(name: String): String {
+    val local = rootProject.file("local.properties")
+    val fromLocal = if (local.exists()) {
+        Properties()
+            .apply { local.inputStream().use { stream -> load(stream) } }
+            .getProperty(name)
+    } else {
+        null
+    }
+    return (fromLocal ?: project.findProperty(name) as? String).orEmpty().trim()
+}
+
+/**
+ * Приложение в кабинете VK ID (id.vk.com): идентификатор, защищённый ключ и хост
+ * адреса возврата. Ключ не секрет в строгом смысле — VK ID для мобильных приложений
+ * всё равно проверяет подпись APK, — но и в публичной истории репозитория ему не место.
+ *
+ * Пустой идентификатор — рабочее состояние, как пустой проект пушей: SDK не
+ * поднимается, кнопок VK на экране профиля нет, профиль заполняется только вручную.
+ * Плейсхолдеры манифеста при этом всё равно нужны — манифест SDK на них ссылается, и
+ * без значений сборка не пройдёт, — поэтому подставляется заглушка `0`.
+ */
+val vkidClientId: String = buildInput("vkidClientId")
+val vkidClientSecret: String = buildInput("vkidClientSecret")
+val vkidRedirectHost: String = buildInput("vkidRedirectHost").ifEmpty { "vk.ru" }
+
+/**
+ * Адрес сервера аккаунтов — вход по почте и паролю (контракт API — в CLAUDE.md, «Account»). Как у VK: пусто — рабочее
+ * состояние, карточка «Аккаунт» не рисуется. В релизе только https: cleartext разрешён
+ * лишь отладочной сборке и лишь для эмулятора (`src/debug/res/xml/network_security_config.xml`),
+ * так что `http://10.0.2.2:8080` — адрес для локального сервера с эмулятора.
+ */
+val accountServerUrl: String = buildInput("accountServerUrl")
+
 android {
     namespace = "ru.zaroslikov.incubator"
     compileSdk = 37
@@ -58,6 +96,17 @@ android {
         // выше. Полем сборки, а не строкой в коде, ровно затем, чтобы его можно было
         // держать вне git.
         buildConfigField("String", "RUSTORE_PUSH_PROJECT_ID", "\"$rustorePushProjectId\"")
+
+        // VK ID: пустой идентификатор выключает вход через VK целиком, см. `vkidClientId`.
+        // В коде нужен только сам факт настройки — остальное SDK читает из манифеста.
+        buildConfigField("String", "VKID_CLIENT_ID", "\"$vkidClientId\"")
+        buildConfigField("String", "ACCOUNT_SERVER_URL", "\"$accountServerUrl\"")
+        val vkidId = vkidClientId.ifEmpty { "0" }
+        manifestPlaceholders["VKIDClientID"] = vkidId
+        manifestPlaceholders["VKIDClientSecret"] = vkidClientSecret.ifEmpty { "0" }
+        manifestPlaceholders["VKIDRedirectHost"] = vkidRedirectHost
+        manifestPlaceholders["VKIDRedirectScheme"] = "vk$vkidId"
+        manifestPlaceholders["vkidEnabled"] = vkidClientId.isNotEmpty().toString()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -159,6 +208,10 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
+
+    // Вход в профиль через VK ID. Всё, что импортирует com.vk.id, лежит в пакете vkid/ —
+    // как AppMetrica в analytics/.
+    implementation(libs.vkid)
 
     // Testing
     testImplementation(libs.junit)

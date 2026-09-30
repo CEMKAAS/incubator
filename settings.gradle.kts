@@ -31,6 +31,23 @@ dependencyResolutionManagement {
                 includeGroupByRegex("ru\\.ok\\.tracer.*")
             }
         }
+        // SDK VK ID — вход в профиль через VK. Отдельный репозиторий того же сервера,
+        // и не просто с фильтром, а эксклюзивно: группы самого SDK (`com.vk.id`,
+        // `com.vk.id.captcha`) берутся только отсюда и ниоткуда больше. Обычный
+        // `content { include… }` лишь ограничивал бы, что может отдать этот
+        // репозиторий, — а `google()` и `mavenCentral()` стоят раньше, и артефакт
+        // с тем же именем, выложенный туда кем-то другим, победил бы. Две его
+        // зависимости — `com.vk:android-sdk-id` и трейсер `ru.ok.tracer` — лежат в Maven
+        // Central и приходят оттуда: здесь их нет.
+        exclusiveContent {
+            forRepository {
+                maven("https://artifactory-external.vkpartner.ru/artifactory/vkid-sdk-android")
+            }
+            filter {
+                includeGroup("com.vk.id")
+                includeGroupByRegex("com\\.vk\\.id\\..*")
+            }
+        }
     }
 }
 
