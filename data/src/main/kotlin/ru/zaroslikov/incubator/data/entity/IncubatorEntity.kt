@@ -30,4 +30,16 @@ data class IncubatorEntity(
     // такой же колонки закладки: и там, и тут это «убрано в архив», то есть с глаз.
     @ColumnInfo(name = "Hidden")
     val hidden: Boolean = false,
+    // Добавлены в девятнадцатой версии схемы, см. MIGRATION_18_19 — потребление и тариф.
+    // Те же пять колонок у закладки (BatchEntity).
+    @ColumnInfo(name = "PowerWatts")
+    val powerWatts: Int? = null,
+    @ColumnInfo(name = "TariffDay")
+    val tariffDay: Double? = null,
+    @ColumnInfo(name = "TariffNight")
+    val tariffNight: Double? = null,
+    @ColumnInfo(name = "NightStart")
+    val nightStart: String = "",
+    @ColumnInfo(name = "NightEnd")
+    val nightEnd: String = "",
 )

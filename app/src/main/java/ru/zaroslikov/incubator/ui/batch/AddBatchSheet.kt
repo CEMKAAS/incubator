@@ -32,6 +32,7 @@ import ru.zaroslikov.incubator.design.components.SlidingTabSwitcher
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -103,6 +104,7 @@ import ru.zaroslikov.incubator.design.components.FieldRadius
 import ru.zaroslikov.incubator.design.components.FormSpacer
 import ru.zaroslikov.incubator.ui.components.CellGap
 import ru.zaroslikov.incubator.ui.components.DashedAddButton
+import ru.zaroslikov.incubator.ui.components.PowerFields
 import ru.zaroslikov.incubator.ui.components.SchedulePadding
 import ru.zaroslikov.incubator.ui.components.ScheduleActionButton
 import ru.zaroslikov.incubator.ui.components.ScheduleHeaderRow
@@ -128,7 +130,7 @@ import ru.zaroslikov.incubator.ui.incubator.CapacityBlock
 import ru.zaroslikov.incubator.ui.incubator.formatMoney
 import ru.zaroslikov.incubator.ui.incubator.plural
 import ru.zaroslikov.incubator.ui.species.CustomSpeciesSheet
-import ru.zaroslikov.incubator.ui.start.speciesEmoji
+import ru.zaroslikov.incubator.ui.start.SpeciesGlyph
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.components.formatCount
 import ru.zaroslikov.incubator.design.theme.DesignType
@@ -185,10 +187,8 @@ private const val HintSizeMillis = 280
  * совпадают ровно. Меняются заголовок и надпись на кнопке.
  *
  * Страниц две, и они листаются вбок, как в шторке самой закладки: «Закладка» — поля из
- * макета, «Расписание» — таблица режима по дням. Раньше режим правили только уже внутри
- * созданной закладки, и увидеть, что именно закладывается, до нажатия «Заложить яйца»
- * было нельзя; таблица к тому же меняется вместе с видом птицы, а вид выбирают на
- * соседней странице — свайп между ними дешевле, чем выход из шторки и возвращение.
+ * макета, «Расписание» — таблица режима по дням, которую видно до нажатия «Заложить яйца»
+ * и которая меняется вместе с видом птицы с соседней страницы.
  *
  * Отступления от макета, все намеренные:
  * — плитки «Цесарки» нет, а есть плитка «Свой вид»: режима для цесарок в :domain не
@@ -614,16 +614,34 @@ private fun FieldsPage(
             if (editing) {
                 Column(Modifier.weight(1f)) {
                     FieldLabel(text = "Отбраковано яиц")
-                    SheetTextField(
-                        value = state.eggRejected,
-                        onValueChange = {
-                            update(state.copy(eggRejected = it.filter(Char::isDigit)))
-                        },
+                    // Итог двух учётов — руками и на овоскопированиях, — и потому не поле
+                    // ввода: одно число не скажет, какую из частей исправили. Нажатие
+                    // открывает разбивку (`RejectedDialog`), где правят каждую часть.
+                    SheetPickerField(
+                        value = if (state.rejectedTotal == 0) "" else state.rejectedTotal.toString(),
                         placeholder = "0",
-                        numeric = true,
+                        onClick = { onIntent(AddBatchIntent.OpenRejected) },
+                        modifier = Modifier.fillMaxWidth(),
                     )
+                    if (!state.rejectedFits) {
+                        FormSpacer(6.dp)
+                        Text(
+                            text = "Больше, чем заложено (${state.eggCount})",
+                            style = DesignType.Caption,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
+        }
+
+        uiState.rejectedDraft?.let { draft ->
+            RejectedDialog(
+                draft = draft,
+                eggCount = state.eggCount,
+                hatched = state.fixedHatch,
+                onIntent = onIntent,
+            )
         }
 
         // Та же полоса, что на карточке инкубатора, только уже с этой закладкой внутри:
@@ -671,10 +689,63 @@ private fun FieldsPage(
             eggCount = state.eggCount,
         )
 
+        // Итог закладки, доведённой до срока: птенцов и их цену вносят в диалоге
+        // завершения, и ошибиться там — обычное дело (досчитали вечером, продали дороже).
+        // Поля те же, что в диалоге, и правила те же: вывод зажимается яйцами, пережившими
+        // овоскопирования (`hatchLimit`), остальное становится отбраковкой
+        // (`withBalancedCull`), пустое поле не сохраняется, цена — сумма с «за птенца /
+        // за всех», хранится дословно.
+        // У прерванной закладки блока нет: её вывод — ноль по определению.
+        if (editing && state.editableHatch) {
+            FormSpacer(20.dp)
+            FieldLabel(text = "Выведено птенцов", required = true)
+            SheetTextField(
+                value = state.eggAllEND,
+                onValueChange = { update(state.copy(eggAllEND = clampCount(it, state.hatchLimit))) },
+                placeholder = "0",
+                numeric = true,
+            )
+            FormSpacer(6.dp)
+            Text(
+                // «Количество яиц» могли уменьшить уже после вывода: тогда вывод больше не
+                // помещается, и сохранение не пускает `AddBatchState.isValid`.
+                text = if (state.hatchFits) hatchedHint(
+                    eggAll = state.eggCount,
+                    candling = state.candlingRejected,
+                    hatched = state.eggAllEND,
+                ) else "Птенцов больше, чем яиц осталось после овоскопирований (${state.hatchLimit})",
+                style = DesignType.Caption,
+                color = if (state.hatchFits) MaterialTheme.colorScheme.onSurfaceVariant
+                else DesignPalette.Expense,
+            )
+
+            FormSpacer(20.dp)
+            FieldLabel(text = "Стоимость птенцов, ${currency.symbol}")
+            PriceRow(
+                price = state.chickPrice,
+                perUnit = state.chickPricePerHead,
+                perUnitLabel = "за птенца",
+                totalLabel = "за всех",
+                onPriceChange = { update(state.copy(chickPrice = it.filter(Char::isDigit))) },
+                onModeChange = { update(state.copy(chickPricePerHead = it)) },
+            )
+            FormSpacer(8.dp)
+            ChickPriceSummary(
+                price = state.chickPrice.toIntOrNull() ?: 0,
+                perHead = state.chickPricePerHead,
+                hatched = state.eggAllEND.toIntOrNull() ?: 0,
+            )
+        }
+
         // Дата и час — одна величина, разнесённая по колонкам ради ввода, и стоять они
         // должны друг против друга. Ряд стоит прямо над «Напоминаниями»: там идут те же
         // «ЧЧ:ММ» из того же диалога, и час закладки читается вместе с ними — это тот
         // момент, от которого отсчитывается срок, а напоминания расставляют по нему день.
+        // У завершённой закладки дата и час заперты (`AddBatchViewModel.updateForm`): от
+        // них отсчитаны прожитые дни, на которых висят замеры, и итог. Поля остаются на
+        // виду — когда заложили, всё ещё полезно знать, — но без значка выбора: значок
+        // звал бы нажать туда, где ничего не произойдёт.
+        val datesLocked = editing && state.finished
         FormSpacer(20.dp)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f)) {
@@ -684,8 +755,9 @@ private fun FieldsPage(
                     placeholder = "—",
                     onClick = onPickDate,
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !datesLocked,
                     trailing = {
-                        Icon(
+                        if (!datesLocked) Icon(
                             painter = painterResource(R.drawable.ic_calendar_design),
                             contentDescription = "Выбрать дату",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -704,8 +776,9 @@ private fun FieldsPage(
                     // Моноширинным, как время напоминания: «08:05» и «19:30» стоят
                     // одинаковой ширины, а рядом с датой это заметно.
                     textStyle = DesignType.MonoField,
+                    enabled = !datesLocked,
                     trailing = {
-                        Icon(
+                        if (!datesLocked) Icon(
                             painter = painterResource(R.drawable.ic_clock_design),
                             contentDescription = "Выбрать время",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -716,23 +789,51 @@ private fun FieldsPage(
             }
         }
 
-        FormSpacer(20.dp)
-        FieldLabel(text = "Напоминания")
-        uiState.reminders.forEachIndexed { index, time ->
-            if (index > 0) FormSpacer(8.dp)
-            ReminderCard(
-                time = time.time,
-                note = time.note,
-                onTimeChange = { onIntent(AddBatchIntent.UpdateReminder(index, time = it)) },
-                onNoteChange = { onIntent(AddBatchIntent.UpdateReminder(index, note = it)) },
-                onRemove = { onIntent(AddBatchIntent.RemoveReminder(index)) },
+        // Тот же вопрос, что в диалогах завершения — в срок и досрочно: до этого момента
+        // считается свет. У любой завершённой закладки, не только у доведённой до срока.
+        // Стоит под датой закладки, а не над ней: сначала «когда заложили», потом «когда
+        // завершили» — в том порядке, в каком это было.
+        if (editing && state.finished) {
+            FormSpacer(20.dp)
+            FinishMomentFields(
+                moment = state.finishMoment,
+                onChange = { update(state.copy(dateEnd = it.date, timeEnd = it.time)) },
+                error = state.finishMomentError,
+                label = if (state.editableHatch) "Когда выключили инкубатор или вынули птенцов"
+                else "Когда выключили инкубатор или убрали яйца",
+            )
+            if (state.timeEnd.isBlank()) {
+                FormSpacer(6.dp)
+                Text(
+                    text = "Час не указан — свет считается до часа закладки в день окончания.",
+                    style = DesignType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        // У завершённой закладки напоминаний нет вовсе: будить больше не о чем, а их
+        // правка была бы правкой того, что не сработает. Строки остаются в базе — по ним
+        // «Вернуть в инкубацию» вернёт напоминания (ViewModel их правки и не примет).
+        if (!datesLocked) {
+            FormSpacer(20.dp)
+            FieldLabel(text = "Напоминания")
+            uiState.reminders.forEachIndexed { index, time ->
+                if (index > 0) FormSpacer(8.dp)
+                ReminderCard(
+                    time = time.time,
+                    note = time.note,
+                    onTimeChange = { onIntent(AddBatchIntent.UpdateReminder(index, time = it)) },
+                    onNoteChange = { onIntent(AddBatchIntent.UpdateReminder(index, note = it)) },
+                    onRemove = { onIntent(AddBatchIntent.RemoveReminder(index)) },
+                )
+            }
+            if (uiState.reminders.isNotEmpty()) FormSpacer(8.dp)
+            DashedAddButton(
+                text = "Добавить напоминание",
+                onClick = { onIntent(AddBatchIntent.AddReminder) },
             )
         }
-        if (uiState.reminders.isNotEmpty()) FormSpacer(8.dp)
-        DashedAddButton(
-            text = "Добавить напоминание",
-            onClick = { onIntent(AddBatchIntent.AddReminder) },
-        )
 
         // Автоматика — единственный блок формы, который спрашивает не про яйца, а про
         // устройство, и стоит он последним, перед заметкой: всё выше него — то, ради
@@ -768,6 +869,20 @@ private fun FieldsPage(
             )
         }
 
+        // Свет — рядом с автоматикой и по той же причине: значения приходят от
+        // инкубатора, а здесь их правят под эту закладку. В отличие от автоматики, и
+        // при правке: расписания они не касаются, а счёт за свет пересчитывается сам.
+        FormSpacer(20.dp)
+        PowerFields(
+            state = state.power,
+            onChange = { update(state.copy(power = it)) },
+            hint = "Взято из настроек инкубатора — поменяйте, если у этой закладки " +
+                "другое потребление (другой режим, другая загрузка) или другой тариф. " +
+                "Значения закладки главнее инкубаторных: по ним «Финансы» считают её " +
+                "электричество. Пока в инкубаторе идут несколько закладок сразу, счёт " +
+                "за общие часы делится между ними поровну.",
+        )
+
         FormSpacer(20.dp)
         FieldLabel(text = "Заметка")
         SheetTextField(
@@ -794,9 +909,13 @@ private fun FieldsPage(
  * усреднённый справочник, а инкубаторы врут каждый по-своему, и узнать об этом надо
  * прежде, чем поверить цифрам, а не после.
  *
- * Шапка таблицы вынесена из прокрутки и висит над строками: до тридцати одной строки
- * подряд, и уехавшие подписи столбцов превратили бы её в четыре колонки чисел без
- * значения. Прокручиваются только строки — их и много.
+ * Прокручивается вся страница целиком — предупреждение, кнопки, легенда и строки: пока
+ * они стояли над прокруткой неподвижно, карточка источника, кнопки и легенда вместе
+ * занимали почти весь экран, и на таблицу, ради которой страницу открывают, оставалась
+ * пара строк. Шапка столбцов при этом — `stickyHeader`: уезжает вверх вместе со справкой
+ * и прилипает к верхнему краю, когда до неё доходит очередь. До тридцати одной строки
+ * подряд, и уехавшие подписи столбцов превратили бы таблицу в четыре колонки чисел без
+ * значения. Фон у шапки — фон шторки, иначе строки просвечивали бы под ней.
  *
  * Столбцы заданы долями, а не фиксированной шириной с горизонтальной прокруткой:
  * таблица должна помещаться целиком на любом телефоне, иначе правка проветривания
@@ -826,11 +945,99 @@ private fun SchedulePage(
     onReset: () -> Unit,
     onImport: () -> Unit,
 ) {
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = SchedulePadding)
+            .padding(horizontal = SchedulePadding),
+        contentPadding = PaddingValues(bottom = 16.dp),
     ) {
+        item(key = "schedule-top", contentType = "top") {
+            ScheduleTop(
+                ready = ready,
+                hasRows = rows.isNotEmpty(),
+                canUseArchive = canUseArchive,
+                canReset = canReset,
+                canImport = canImport,
+                importing = importing,
+                origin = origin,
+                hasOverlap = hasOverlap,
+                onUseArchive = onUseArchive,
+                onReset = onReset,
+                onImport = onImport,
+            )
+        }
+
+        // Пока таблица не наполнена — колесо: при правке строки приезжают из базы не
+        // сразу, и «режима нет» в первые кадры было бы неправдой, а пустое место под
+        // заголовком неотличимо от неё.
+        if (!ready) {
+            item(key = "schedule-loading", contentType = "loading") {
+                LoadingBox(Modifier.fillParentMaxHeight(0.5f))
+            }
+            return@LazyColumn
+        }
+        if (rows.isEmpty()) {
+            // Пусто бывает ровно в одном случае: в :domain нет режима для этого вида,
+            // и `when` в setIncubator молча ушёл в else.
+            item(key = "schedule-empty", contentType = "empty") {
+                Text(
+                    text = "Режим для вида «$species» пока не описан — дни появятся, " +
+                        "когда он будет добавлен.",
+                    style = DesignType.Body,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            return@LazyColumn
+        }
+
+        stickyHeader(key = "schedule-header", contentType = "header") {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background),
+            ) {
+                ScheduleHeaderRow()
+                HorizontalDivider(thickness = 0.8.dp, color = DesignPalette.CardBorder)
+                FormSpacer(8.dp)
+            }
+        }
+
+        // Без ключей намеренно: список не переупорядочивается, а весь ввод живёт
+        // во ViewModel, так что позиции хватает. Ключ по дню уронил бы список на
+        // закладке, где день по какой-то причине встретился дважды.
+        itemsIndexed(rows) { index, row ->
+            Box(modifier = Modifier.padding(bottom = CellGap)) {
+                ScheduleRow(
+                    row = row,
+                    onChange = { onRowChange(index, it) },
+                    autoTurn = autoTurn,
+                    autoAiring = autoAiring,
+                    verdicts = overlap.getOrNull(index),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Всё, что стоит над таблицей: откуда режим, кнопки выбора источника и легенда цветов.
+ * Первый элемент прокрутки страницы — уезжает вверх вместе со строками.
+ */
+@Composable
+private fun ScheduleTop(
+    ready: Boolean,
+    hasRows: Boolean,
+    canUseArchive: Boolean,
+    canReset: Boolean,
+    canImport: Boolean,
+    importing: Boolean,
+    origin: ScheduleOrigin?,
+    hasOverlap: Boolean,
+    onUseArchive: () -> Unit,
+    onReset: () -> Unit,
+    onImport: () -> Unit,
+) {
+    Column {
         FormSpacer(16.dp)
         // Одно место, три разных сообщения: пока режим справочный — предупреждение о
         // том, что он справочный; как только он взят из архива — из какой закладки; из
@@ -885,52 +1092,14 @@ private fun SchedulePage(
         }
 
         FormSpacer(16.dp)
-        // Пока таблица не наполнена — колесо: при правке строки приезжают из базы не
-        // сразу, и «режима нет» в первые кадры было бы неправдой, а пустое место под
-        // заголовком неотличимо от неё.
-        if (!ready) {
-            LoadingBox()
-            return@Column
-        }
-        if (rows.isEmpty()) {
-            // Пусто бывает ровно в одном случае: в :domain нет режима для этого вида,
-            // и `when` в setIncubator молча ушёл в else.
-            Text(
-                text = "Режим для вида «$species» пока не описан — дни появятся, " +
-                    "когда он будет добавлен.",
-                style = DesignType.Body,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            return@Column
-        }
 
         // Легенда — только пока есть что объяснять: без соседей таблица белая, и
         // строка про три цвета над ней говорила бы о том, чего на экране нет. Стоит
         // между кнопками и шапкой, а не в предупреждении: оно сменяется карточкой
         // источника, а цвета от источника не зависят.
-        AnimatedVisibility(visible = hasOverlap) {
-            OverlapLegend()
-        }
-
-        ScheduleHeaderRow()
-        HorizontalDivider(thickness = 0.8.dp, color = DesignPalette.CardBorder)
-
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(CellGap),
-        ) {
-            // Без ключей намеренно: список не переупорядочивается, а весь ввод живёт
-            // во ViewModel, так что позиции хватает. Ключ по дню уронил бы список на
-            // закладке, где день по какой-то причине встретился дважды.
-            itemsIndexed(rows) { index, row ->
-                ScheduleRow(
-                    row = row,
-                    onChange = { onRowChange(index, it) },
-                    autoTurn = autoTurn,
-                    autoAiring = autoAiring,
-                    verdicts = overlap.getOrNull(index),
-                )
+        if (ready && hasRows) {
+            AnimatedVisibility(visible = hasOverlap) {
+                OverlapLegend()
             }
         }
     }
@@ -1404,11 +1573,8 @@ private fun SpeciesGrid(
     val tail: List<String?> = custom.filterNot { it == selectedCustom } +
         if (selectedCustom == null) emptyList() else listOf(null)
 
-    // Раскрытие и сворачивание — движение самих плиток, а не рост пустоты под ними.
-    // Первая версия анимировала высоту всей сетки через `animateContentSize`, и на
-    // сворачивании это было заметно: ряды пропадали мгновенно, а плавно съезжалось
-    // пустое место, где они только что стояли. Хвост поэтому живёт в собственном
-    // [AnimatedVisibility] — тогда он уезжает вверх и гаснет вместе с высотой.
+    // Раскрытие — движение самих плиток, а не рост пустоты под ними: `animateContentSize`
+    // на всей сетке при сворачивании гасил ряды мгновенно и плавно съезжал пустым местом.
     Column {
         SpeciesRows(head, catalog, selected, onSelect, onAddSpecies)
 
@@ -1573,7 +1739,7 @@ private fun SpeciesTile(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
         ) {
-            Text(text = speciesEmoji(species), fontSize = 24.sp, lineHeight = 36.sp)
+            SpeciesGlyph(bird = species, fontSize = 24.sp, lineHeight = 36.sp)
             Text(
                 text = species,
                 style = DesignType.CaptionEmphasis,
@@ -1745,8 +1911,8 @@ private fun splitNotice(state: BatchUiState): String {
  * Ровно та же [CapacityBlock], что на карточке инкубатора: «50 / 72 места», процент и
  * полоса, красные при переборе. Одна функция на оба места, чтобы форма обещала ровно
  * то, что карточка покажет после сохранения. Без вместимости блок не рисуется вовсе —
- * ни числа яиц, ни подписи: полоса без потолка ни на что не отвечает, а «укажите
- * вместимость» карточка уже говорит. В число входят и яйца, которые уже лежат в устройстве, — иначе полоса
+ * ни числа яиц, ни подписи: полоса без потолка ни на что не отвечает, а вместимость
+ * необязательна, и просить её здесь незачем. В число входят и яйца, которые уже лежат в устройстве, — иначе полоса
  * отвечала бы «сколько яиц в этой закладке», а на это отвечает поле над ней.
  *
  * Подпись под полосой раскладывает сумму на слагаемые, когда в инкубаторе уже что-то
@@ -1791,7 +1957,11 @@ private val BreedCountWidth = 76.dp
  * как поле, которое сломалось.
  */
 @Composable
-private fun DerivedCountField(value: String, hint: String) {
+private fun DerivedCountField(
+    value: String,
+    hint: String,
+    leading: (@Composable () -> Unit)? = null,
+) {
     Surface(
         shape = RoundedCornerShape(FieldRadius),
         color = DesignPalette.SheetIconButton,
@@ -1804,6 +1974,7 @@ private fun DerivedCountField(value: String, hint: String) {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 16.dp),
         ) {
+            leading?.invoke()
             Text(
                 text = value,
                 style = DesignType.FieldValue,
@@ -1829,8 +2000,12 @@ private fun DerivedCountField(value: String, hint: String) {
 @Composable
 private fun LockedSpeciesField(species: String, days: Int?) {
     DerivedCountField(
-        value = "${speciesEmoji(species)}  $species",
+        value = species,
         hint = days?.let { "$it дн." }.orEmpty(),
+        leading = {
+            SpeciesGlyph(bird = species, fontSize = DesignType.FieldValue.fontSize)
+            Spacer(Modifier.width(8.dp))
+        },
     )
 }
 
@@ -1894,13 +2069,9 @@ private fun ReminderCard(
 /**
  * Предложение взять режим по дням из завершённой закладки того же вида.
  *
- * Макета у диалога нет — он сохраняет возможность, которая была в прежней двухшаговой
- * форме.
- *
- * Открывается он кнопкой над таблицей, а не сам собой при сохранении, как раньше.
- * Пока режим был не виден, спросить о нём можно было только в последний момент; теперь
- * таблица открыта, и подменять её за спиной у того, кто её только что правил, нельзя —
- * поэтому и выбор рядом с ней, и результат замены сразу видно.
+ * Макета у диалога нет. Открывается кнопкой над таблицей: подменять таблицу за спиной
+ * у того, кто её только что правил, нельзя, поэтому выбор рядом с ней и результат
+ * замены сразу виден.
  *
  * Выборов здесь два, и второй — главный. Сначала закладка, потом что из неё брать:
  * её план или среднее по её замерам ([ArchiveScheduleSource]). План — это цифры, с
@@ -2100,4 +2271,135 @@ private fun archiveBatchCaption(option: ArchiveOption): String {
     }
     parts += if (option.hasMeasurements) "есть замеры" else "без замеров"
     return parts.joinToString(" · ")
+}
+
+/**
+ * Строка овоскопирования в форме правки: слева какое оно по счёту и в какой день, справа
+ * поле выбраковки. Поле узкое — в нём два-три знака, а подпись слева длинная.
+ */
+@Composable
+private fun CandlingEditRowField(row: CandlingEditRow, onValueChange: (String) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = stageTitle(row.stage),
+                style = DesignType.Body,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "день ${row.day}",
+                style = DesignType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.width(96.dp)) {
+            SheetTextField(
+                value = row.rejected,
+                onValueChange = onValueChange,
+                placeholder = "—",
+                numeric = true,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/**
+ * «Отбраковано яиц» по частям: сколько убрал сам человек между овоскопированиями, сколько
+ * выбраковано на каждом овоскопировании, и внизу итог — то число, что встанет в поле
+ * формы. Правится черновик (`AddBatchState.rejectedDraft`): «Отмена» не меняет ничего,
+ * «Готово» отдаёт набранное форме, а в базу оно уходит по «Сохранить».
+ *
+ * Итог не больше заложенного: каждое поле зажимается остатком после остальных
+ * (`AddBatchViewModel.updateRejectedDraft`), и строка итога это остаток и называет.
+ */
+@Composable
+private fun RejectedDialog(
+    draft: RejectedDraft,
+    eggCount: Int,
+    hatched: Int?,
+    onIntent: (AddBatchIntent) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = { onIntent(AddBatchIntent.DismissRejected) },
+        title = { Text(text = "Отбраковано яиц", style = DesignType.SectionTitle) },
+        text = {
+            Column(Modifier.clearFocusOnTap().verticalScroll(rememberScrollState())) {
+                FieldLabel(text = "Отбраковано вручную")
+                // Птенцы вписаны — они главные: ручная часть — остаток «заложено − вывелось
+                // − овоскопирования», и вводить её нечего (`updateRejectedDraft`).
+                if (hatched != null) {
+                    DerivedCountField(value = draft.manualCount.toString(), hint = "остаток")
+                } else {
+                    SheetTextField(
+                        value = draft.manual,
+                        onValueChange = { onIntent(AddBatchIntent.UpdateManualRejected(it)) },
+                        placeholder = "0",
+                        numeric = true,
+                    )
+                }
+                FormSpacer(6.dp)
+                Text(
+                    text = if (hatched != null) {
+                        "Всё, что не вылупилось и не убрано на овоскопировании"
+                    } else {
+                        "Треснувшие, протухшие — всё, что убрали между овоскопированиями"
+                    },
+                    style = DesignType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                if (draft.candlings.isNotEmpty()) {
+                    FormSpacer(20.dp)
+                    FieldLabel(text = "На овоскопировании")
+                    draft.candlings.forEachIndexed { index, row ->
+                        if (index > 0) FormSpacer(8.dp)
+                        CandlingEditRowField(
+                            row = row,
+                            onValueChange = { onIntent(AddBatchIntent.UpdateCandling(index, it)) },
+                        )
+                    }
+                }
+
+                FormSpacer(16.dp)
+                HorizontalDivider(thickness = 0.8.dp, color = DesignPalette.CardBorder)
+                FormSpacer(12.dp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Итого",
+                        style = DesignType.CardTitle,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = draft.total.toString(),
+                        style = DesignType.CardTitle,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                FormSpacer(4.dp)
+                Text(
+                    text = if (hatched != null) {
+                        "Из $eggCount заложенных, вылупилось $hatched"
+                    } else {
+                        "Из $eggCount заложенных, осталось ${(eggCount - draft.total).coerceAtLeast(0)}"
+                    },
+                    style = DesignType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onIntent(AddBatchIntent.ConfirmRejected) }) {
+                Text(text = "Готово", color = DesignPalette.Accent)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onIntent(AddBatchIntent.DismissRejected) }) {
+                Text(text = "Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.background,
+    )
 }

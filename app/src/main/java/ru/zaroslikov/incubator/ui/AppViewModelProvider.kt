@@ -7,12 +7,15 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import ru.zaroslikov.incubator.InventoryApplication
 import ru.zaroslikov.incubator.ui.batch.AddBatchViewModel
+import ru.zaroslikov.incubator.ui.batch.AiringTimerFabViewModel
+import ru.zaroslikov.incubator.ui.batch.BatchDetailViewModel
+import ru.zaroslikov.incubator.ui.batch.CalendarOfferViewModel
+import ru.zaroslikov.incubator.ui.batch.CandlingViewModel
+import ru.zaroslikov.incubator.ui.batch.FinishGroupViewModel
 import ru.zaroslikov.incubator.ui.incubator.AddIncubatorViewModel
 import ru.zaroslikov.incubator.ui.incubator.IncubatorMeasurementViewModel
 import ru.zaroslikov.incubator.ui.incubator.IncubatorViewModel
-import ru.zaroslikov.incubator.ui.batch.BatchDetailViewModel
-import ru.zaroslikov.incubator.ui.batch.CandlingViewModel
-import ru.zaroslikov.incubator.ui.batch.FinishGroupViewModel
+import ru.zaroslikov.incubator.ui.menu.AboutViewModel
 import ru.zaroslikov.incubator.ui.menu.AnalyticsViewModel
 import ru.zaroslikov.incubator.ui.menu.SettingsViewModel
 import ru.zaroslikov.incubator.ui.qr.IncubatorQrViewModel
@@ -20,10 +23,8 @@ import ru.zaroslikov.incubator.ui.qr.ScanQrViewModel
 import ru.zaroslikov.incubator.ui.species.CustomSpeciesViewModel
 import ru.zaroslikov.incubator.ui.start.StartScreenViewModel
 
-
 object AppViewModelProvider {
     val Factory = viewModelFactory {
-
         initializer {
             BatchDetailViewModel(
                 inventoryApplication().container.appSettings,
@@ -66,7 +67,8 @@ object AppViewModelProvider {
                 this.createSavedStateHandle(),
                 inventoryApplication().container.itemsRepository,
                 inventoryApplication().container.workRepository,
-                inventoryApplication().container.scheduleTransfer
+                inventoryApplication().container.scheduleTransfer,
+                inventoryApplication().container.review,
             )
         }
 
@@ -116,6 +118,26 @@ object AppViewModelProvider {
         initializer {
             ScanQrViewModel(
                 inventoryApplication().container.itemsRepository
+            )
+        }
+
+        initializer {
+            AboutViewModel(
+                inventoryApplication().container.review,
+                inventoryApplication().container.appUpdate,
+            )
+        }
+
+        initializer {
+            CalendarOfferViewModel(
+                inventoryApplication(),
+                this.createSavedStateHandle(),
+            )
+        }
+
+        initializer {
+            AiringTimerFabViewModel(
+                inventoryApplication().container.airingTimer
             )
         }
     }

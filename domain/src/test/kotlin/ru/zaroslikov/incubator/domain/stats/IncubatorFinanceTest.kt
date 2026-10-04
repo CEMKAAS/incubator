@@ -289,6 +289,46 @@ class IncubatorFinanceTest {
         assertTrue(more.payback!! > 100)
     }
 
+    /**
+     * Окупаемость — итог, и считается по завершённым закладкам: новая закладка уже
+     * потратила деньги на яйца, а выручки у неё ещё нет, и ронять из-за неё процент
+     * значило бы сообщать об убытке, которого не было. Баланс при этом её видит.
+     */
+    @Test
+    fun `идущая закладка не трогает окупаемость, но опускает баланс`() {
+        val done = batch(1, eggAll = 10, eggAllEND = 10, price = 5, chickPrice = 50)
+        val before = incubatorFinance(1_000, listOf(done))
+        val after = incubatorFinance(
+            1_000,
+            listOf(done, batch(2, eggAll = 60, arhive = "0", dateEnd = "", price = 5)),
+        )
+
+        // 500 выручки − 50 за яйца = 450 из 1 000.
+        assertEquals(450, before.profitOnBatches)
+        assertEquals(45, before.payback)
+        assertEquals(450, after.profitOnBatches)
+        assertEquals(45, after.payback)
+        // Деньги на яйца идущей закладки уже потрачены — баланс их видит.
+        assertEquals(before.balance - 300, after.balance)
+    }
+
+    @Test
+    fun `после ста процентов сверх цены техники считается без идущих закладок`() {
+        val finance = incubatorFinance(
+            1_000,
+            listOf(
+                batch(1, eggAll = 10, eggAllEND = 10, price = 5, chickPrice = 200),
+                batch(2, eggAll = 100, arhive = "0", dateEnd = "", price = 20),
+            ),
+        )
+
+        // 2 000 − 50 = 1 950 прибыли, окупился, сверх цены — 950.
+        assertEquals(195, finance.payback)
+        assertEquals(950, finance.profitOverEquipment)
+        // Баланс придавлен яйцами идущей: 2 000 − 50 − 2 000 − 1 000.
+        assertEquals(-1_050, finance.balance)
+    }
+
     @Test
     fun `убыточное хозяйство показывает ноль окупаемости, а не минус`() {
         val finance = incubatorFinance(

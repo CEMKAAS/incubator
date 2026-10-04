@@ -13,12 +13,22 @@ import kotlinx.coroutines.withContext
 import ru.zaroslikov.incubator.domain.model.Incubator
 import ru.zaroslikov.incubator.domain.repository.ItemsRepository
 import ru.zaroslikov.incubator.qr.QrBitmap
+import ru.zaroslikov.incubator.qr.QrDetails
 import ru.zaroslikov.incubator.qr.QrLink
 import ru.zaroslikov.incubator.qr.QrModules
 import ru.zaroslikov.incubator.qr.appIconBitmap
 import ru.zaroslikov.incubator.qr.qrModules
 import ru.zaroslikov.incubator.ui.mvi.StatefulMviViewModel
+import ru.zaroslikov.incubator.ui.start.modelLine
 import java.io.File
+
+/**
+ * Что стоит под кодом. [Compact] — название, как было всегда: наклейка на прибор, которую
+ * читают камерой. [Detailed] добавляет бренд с моделью и примечание инкубатора — для листа,
+ * который вешают рядом с прибором и читают глазами («левый лоток греет хуже», «вода —
+ * через день»). Код в обоих режимах один и тот же, меняется только подпись под ним.
+ */
+enum class QrMode { Compact, Detailed }
 
 @Immutable
 data class IncubatorQrState(
@@ -32,7 +42,21 @@ data class IncubatorQrState(
     val loaded: Boolean = false,
     /** Файл пишется — кнопки на это время погашены, чтобы не писать его дважды. */
     val busy: Boolean = false,
-)
+    /**
+     * Режим подписи — и на экране, и в картинке: примечание, показанное на карточке, уходит и в
+     * сохранённый файл. Переживает
+     * смену инкубатора — это выбор человека о том, что он печатает, а не свойство прибора.
+     */
+    val mode: QrMode = QrMode.Compact,
+) {
+    /**
+     * Режим, который действительно рисуется и печатается: без примечания «Подробно» не
+     * существует, и выбранный когда-то режим на инкубаторе без заметок читается как «Кратко».
+     * Сам [mode] при этом не сбрасывается — выбор вернётся, как только примечание появится.
+     */
+    val effectiveMode: QrMode
+        get() = if (incubator?.note.isNullOrBlank()) QrMode.Compact else mode
+}
 
 sealed interface IncubatorQrIntent {
     data class Load(val incubatorId: Long) : IncubatorQrIntent
@@ -42,6 +66,9 @@ sealed interface IncubatorQrIntent {
 
     /** Готовит PNG в кэше и просит экран открыть окно «Поделиться». */
     data object Share : IncubatorQrIntent
+
+    /** «Кратко» или «Подробно» — что подписать под кодом. */
+    data class SetMode(val mode: QrMode) : IncubatorQrIntent
 }
 
 sealed interface IncubatorQrEffect {
@@ -51,19 +78,10 @@ sealed interface IncubatorQrEffect {
 }
 
 /**
- * Шторка «QR-код инкубатора»: код, его картинка на печать и её отправка.
- *
- * Сетка кода зависит только от идентификатора и строится один раз в [load], на
- * `Dispatchers.Default`: ZXing считает её за миллисекунды, но считать её на главном
- * потоке при каждой перерисовке всё равно незачем. Название подписывается под кодом
- * в момент записи файла — оно берётся из текущего ответа базы, так что переименованный
- * инкубатор получает файл с новым именем, а код в нём тот же.
- *
- * Запись файла — здесь, а не в контроллере из `AppContainer`, как у расписания: файл
- * — сотня килобайт и пишется за доли секунды, а `viewModelScope` переживает и поворот,
- * и закрытие шторки, пока жив экран под ней. Закрыть экран инкубатора за эти доли
- * секунды можно, но тогда речь идёт о PNG-картинке, которую нажмут заново, а не о
- * файле базы, который нельзя оставить пустым.
+ * Шторка «QR-код инкубатора»: код, его картинка на печать и её отправка. Сетка зависит только от
+ * идентификатора и строится один раз в [load] на `Dispatchers.Default`. Название подписывается под
+ * кодом при записи файла — из текущего ответа базы. PNG пишется здесь, а не в контроллере
+ * `AppContainer`: это сто килобайт, и недописанный файл повторяют нажатием.
  */
 class IncubatorQrViewModel(
     private val application: Application,
@@ -77,6 +95,7 @@ class IncubatorQrViewModel(
             is IncubatorQrIntent.Load -> load(intent.incubatorId)
             is IncubatorQrIntent.SaveTo -> write(intent.target)
             IncubatorQrIntent.Share -> share()
+            is IncubatorQrIntent.SetMode -> reduce { copy(mode = intent.mode) }
         }
     }
 
@@ -86,7 +105,7 @@ class IncubatorQrViewModel(
         // иначе кнопки оживут посреди записи и вторая начнётся поверх первой.
         if (current.incubatorId == incubatorId && loadJob?.isActive == true) return
         loadJob?.cancel()
-        reduce { IncubatorQrState(incubatorId = incubatorId, busy = busy) }
+        reduce { IncubatorQrState(incubatorId = incubatorId, busy = busy, mode = mode) }
         loadJob = viewModelScope.launch {
             val modules = withContext(Dispatchers.Default) { qrModules(QrLink.encode(incubatorId)) }
             reduce { copy(modules = modules) }
@@ -156,11 +175,15 @@ class IncubatorQrViewModel(
         val state = current
         if (state.busy) return null
         val modules = state.modules ?: return null
-        val label = state.incubator?.name.orEmpty()
+        val incubator = state.incubator
+        val label = incubator?.name.orEmpty()
+        val details = if (state.effectiveMode == QrMode.Detailed && incubator != null) {
+            QrDetails(subtitle = modelLine(incubator.brand, incubator.model), note = incubator.note)
+        } else null
         // Значок берётся здесь, до ухода с главного потока: `getApplicationIcon` — обращение
         // к системе, и оно синхронное и быстрое, а рисовать растр всё равно на IO.
         val logo = appIconBitmap(application, QrBitmap.logoSizePx(modules))
-        return { QrBitmap.png(modules, label, logo) }
+        return { QrBitmap.png(modules, label, logo, details) }
     }
 
     /**

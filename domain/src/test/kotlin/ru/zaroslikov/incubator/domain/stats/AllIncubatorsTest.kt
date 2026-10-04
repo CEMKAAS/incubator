@@ -90,9 +90,8 @@ class AllIncubatorsTest {
      * есть отвечает на вопрос «отбило ли хозяйство свои инкубаторы», а не «отбил ли
      * каждый свой». Это разные вопросы, и складывать проценты по устройствам нельзя.
      *
-     * Заодно проверяется связка, ради которой окупаемость и считается по
-     * [IncubatorFinance.profitOnBatches], а не по балансу: `balance >= 0` тогда и только
-     * тогда, когда `payback >= 100`.
+     * Прибыль для окупаемости — только завершённых закладок: идущая №4 потратила 400 на
+     * яйца и выручки ещё не имеет, и в окупаемость эти 400 не идут, а в баланс идут.
      */
     @Test
     fun `окупаемость хозяйства считается от суммарной цены техники`() {
@@ -106,16 +105,19 @@ class AllIncubatorsTest {
         assertEquals(5_500, all.eggsExpense)
         assertEquals(17_400, all.income)
         assertEquals(18_500, all.expense)
-        assertEquals(11_900, all.profitOnBatches)
+        // 17 400 − (5 500 − 400 идущей) = 12 300.
+        assertEquals(12_300, all.profitOnBatches)
 
-        // 11 900 из 13 000 — 91 % (целочисленно), и хозяйство ещё в минусе на 1 100.
-        assertEquals(91, all.payback)
+        // 12 300 из 13 000 — 94 % (целочисленно); баланс, видящий и идущую, — минус 1 100.
+        assertEquals(94, all.payback)
         assertEquals(-1_100, all.balance)
     }
 
     /**
      * Связка, ради которой окупаемость считается по [IncubatorFinance.profitOnBatches],
-     * а не по балансу: `balance >= 0` тогда и только тогда, когда `payback >= 100`.
+     * а не по балансу: `balance >= 0` тогда и только тогда, когда `payback >= 100` — по
+     * разные стороны порога. Ровно на пороге их разводит идущая закладка (см.
+     * `IncubatorFinanceTest`), здесь до порога далеко с обеих сторон.
      *
      * Проверяется на обеих сторонах порога, иначе утверждение прошло бы и на коде,
      * который всегда отвечает «нет».
@@ -125,8 +127,8 @@ class AllIncubatorsTest {
         val cheap = incubatorFinance(1_000, first + second)
         val dear = incubatorFinance(firstPrice + secondPrice, first + second)
 
-        // Та же прибыль 11 900 против техники за 1 000 — окупилась с лихвой.
-        assertEquals(1_190, cheap.payback)
+        // Та же прибыль 12 300 против техники за 1 000 — окупилась с лихвой.
+        assertEquals(1_230, cheap.payback)
         assertEquals(10_900, cheap.balance)
 
         assertEquals(true, cheap.balance >= 0 && (cheap.payback ?: 0) >= 100)
@@ -182,14 +184,17 @@ class AllIncubatorsTest {
         assertEquals(1, all.total.activeBatches)
     }
 
-    /** Разрезы по видам собираются по всем устройствам сразу, а не по каждому отдельно. */
+    /**
+     * Разрезы по видам собираются по всем устройствам сразу, а не по каждому отдельно, —
+     * и только из завершённых закладок: идущие гусиные 40 яиц в столбец гусей не входят.
+     */
     @Test
     fun `виды птицы собираются со всех инкубаторов в один разрез`() {
         val all = incubatorStats(first + second, emptyList())
 
         assertEquals(listOf("Курицы", "Гуси"), all.bySpecies.map { it.slice.name })
         assertEquals(150, all.bySpecies.first { it.slice.name == "Курицы" }.slice.eggs)
-        assertEquals(100, all.bySpecies.first { it.slice.name == "Гуси" }.slice.eggs)
+        assertEquals(60, all.bySpecies.first { it.slice.name == "Гуси" }.slice.eggs)
     }
 
     /**

@@ -23,9 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,15 +33,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.core.net.toUri
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.zaroslikov.incubator.ads.AdBanner
 import ru.zaroslikov.incubator.ads.rememberBannerAdHost
 import ru.zaroslikov.incubator.analytics.Analytics
 import ru.zaroslikov.incubator.analytics.Events
 import ru.zaroslikov.incubator.BuildConfig
-import ru.zaroslikov.incubator.InventoryApplication
 import ru.zaroslikov.incubator.R
 import ru.zaroslikov.incubator.rustore.IS_RUSTORE_BUILD
 import ru.zaroslikov.incubator.rustore.UpdateCheckOutcome
+import ru.zaroslikov.incubator.ui.AppViewModelProvider
 import ru.zaroslikov.incubator.ui.incubator.CardHeader
 import ru.zaroslikov.incubator.ui.incubator.TabCard
 import ru.zaroslikov.incubator.ui.navigation.NavigationDestination
@@ -52,7 +52,6 @@ import ru.zaroslikov.incubator.design.theme.DesignType
 
 object AboutDestination : NavigationDestination {
     override val route = "About"
-    override val titleRes = R.string.app_name
 }
 
 /** Куда писать и куда заходить — единственные четыре адреса, которые знает приложение. */
@@ -72,6 +71,20 @@ private const val TELEGRAM_LABEL = "t.me/my_ferma_app"
  * не перепишет с экрана и не запомнит. Поэтому в строке стоит не он, а то, что за ним.
  */
 private const val VK_CHANNEL_LABEL = "Новости и обновления приложения"
+
+/**
+ * «Моё хозяйство» — трекинговые ссылки AppMetrica, а не адреса страниц в магазинах: переход
+ * засчитывается в кабинете «Моего хозяйства», и видно, из какого магазина он пришёл.
+ *
+ * Обе ссылки показываются в любой сборке: магазин, из которого поставили «Инкубатор», не
+ * обязан быть тем, которым человек пользуется, — пусть выбирает сам. Прямой адрес RuStore
+ * (`FarmApp.STORE_URL`) остаётся за кнопкой «Обновить» — там речь о приложении, которое
+ * уже стоит.
+ */
+private const val FARM_APP_URL_RUSTORE =
+    "https://4625329.redirect.appmetrica.yandex.com?appmetrica_tracking_id=1110909310214390884&referrer=reattribution%3D1"
+private const val FARM_APP_URL_GOOGLE_PLAY =
+    "https://4625329.redirect.appmetrica.yandex.com?appmetrica_tracking_id=102102982392332880&referrer=reattribution%3D1"
 
 private const val DEVELOPER = "Заросликов Семён Николаевич"
 
@@ -96,14 +109,10 @@ fun AboutScreen(
     navigateBack: () -> Unit,
     navigateToGuide: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(0.dp),
+    viewModel: AboutViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val context = LocalContext.current
-    // Контейнер приложения прямо из контекста, без ViewModel: обе кнопки RuStore не
-    // держат состояния, которое стоило бы пережить поворот экрана, — состояние
-    // обновления живёт в самом контроллере, а оценка не имеет его вовсе.
-    val container = remember(context) {
-        (context.applicationContext as InventoryApplication).container
-    }
+    val state by viewModel.state.collectAsStateWithLifecycle()
 
     MenuScreen(
         title = "О приложении",
@@ -121,10 +130,10 @@ fun AboutScreen(
         if (IS_RUSTORE_BUILD) {
             Spacer(Modifier.height(16.dp))
             StoreCard(
-                onRate = { container.review.open() },
-                onCheckUpdate = { onOutcome ->
-                    container.appUpdate.check(manual = true, onOutcome)
-                },
+                checking = state.checkingUpdate,
+                outcome = state.updateOutcome,
+                onRate = { viewModel.onIntent(AboutIntent.Rate) },
+                onCheckUpdate = { viewModel.onIntent(AboutIntent.CheckUpdate) },
             )
         }
 
@@ -154,7 +163,15 @@ fun AboutScreen(
             },
         )
 
-        // Реклама — последняя карточка, после контактов.
+        Spacer(Modifier.height(16.dp))
+        OtherAppsCard(
+            onFarm = { store, url ->
+                Analytics.report(Events.OPEN_FARM_APP_LINK, mapOf("Магазин" to store))
+                openUrl(context, url)
+            },
+        )
+
+        // Реклама — последняя карточка, после рекомендуемых приложений.
         AdBanner(rememberBannerAdHost(), Modifier.padding(top = 16.dp))
     }
 }
@@ -274,14 +291,11 @@ private fun GuideCard(onOpen: () -> Unit) {
  */
 @Composable
 private fun StoreCard(
+    checking: Boolean,
+    outcome: UpdateCheckOutcome?,
     onRate: () -> Unit,
-    onCheckUpdate: ((UpdateCheckOutcome) -> Unit) -> Unit,
+    onCheckUpdate: () -> Unit,
 ) {
-    // Пережить поворот незачем: проверка занимает мгновение, а её ответ относится к
-    // нажатию, которого после поворота уже не было.
-    var status by remember { mutableStateOf<UpdateCheckOutcome?>(null) }
-    var checking by remember { mutableStateOf(false) }
-
     TabCard {
         MenuRow(
             title = "Оценить приложение",
@@ -295,23 +309,44 @@ private fun StoreCard(
             title = "Проверить обновление",
             description = when {
                 checking -> "Спрашиваем RuStore…"
-                status == UpdateCheckOutcome.Offered -> "Новая версия есть — карточка внизу экрана"
-                status == UpdateCheckOutcome.UpToDate -> "У вас последняя версия"
-                status == UpdateCheckOutcome.Unavailable -> "RuStore не отвечает — проверьте вручную в магазине"
+                outcome == UpdateCheckOutcome.Offered -> "Новая версия есть — карточка внизу экрана"
+                outcome == UpdateCheckOutcome.UpToDate -> "У вас последняя версия"
+                outcome == UpdateCheckOutcome.Unavailable -> "RuStore не отвечает — проверьте вручную в магазине"
                 else -> "Спросить RuStore, нет ли версии новее"
             },
-            onClick = {
-                // Повторное нажатие поверх идущей проверки ничего не добавит: ответ
-                // придёт на первое, а второе только сбросило бы строку в «спрашиваем».
-                if (!checking) {
-                    checking = true
-                    status = null
-                    onCheckUpdate { outcome ->
-                        checking = false
-                        status = outcome
-                    }
-                }
-            },
+            onClick = onCheckUpdate,
+        )
+    }
+}
+
+/**
+ * Другое приложение того же автора — «Моё хозяйство», учёт фермы целиком.
+ *
+ * Отдельная карточка, а не строка в «Контактах»: там адреса, по которым пишут
+ * разработчику, а это приложение, которое ставят. Птенцы из поздравления с выводом
+ * уходят именно туда, так что тому, кто его ещё не поставил, нужно знать, где его взять.
+ */
+@Composable
+private fun OtherAppsCard(onFarm: (store: String, url: String) -> Unit) {
+    TabCard {
+        CardHeader(
+            title = "Рекомендуемые приложения",
+            subtitle = "Моё хозяйство — учёт животных, кормов и доходов фермы",
+        )
+        Spacer(Modifier.height(16.dp))
+
+        MenuRow(
+            title = "Скачать в RuStore",
+            onClick = { onFarm("RuStore", FARM_APP_URL_RUSTORE) },
+            trailing = { MenuIcon(R.drawable.ic_rustore) },
+        )
+
+        MenuRowDivider()
+
+        MenuRow(
+            title = "Скачать в Google Play",
+            onClick = { onFarm("Google Play", FARM_APP_URL_GOOGLE_PLAY) },
+            trailing = { MenuIcon(R.drawable.ic_google) },
         )
     }
 }

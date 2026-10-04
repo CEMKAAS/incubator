@@ -227,7 +227,6 @@ fun showReminder(
  * показе, код обещал важность, которой не мог обеспечить.
  */
 private fun ensureChannel(context: Context) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager?
         ?: return
     if (manager.getNotificationChannel(CHANNEL_ID) != null) return
@@ -258,10 +257,7 @@ private fun reminderIntent(
     incubatorId: Long,
     batchId: Long,
 ): PendingIntent {
-    var flags = PendingIntent.FLAG_UPDATE_CURRENT
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        flags = flags or PendingIntent.FLAG_IMMUTABLE
-    }
+    val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 
     return PendingIntent.getActivity(
         context,

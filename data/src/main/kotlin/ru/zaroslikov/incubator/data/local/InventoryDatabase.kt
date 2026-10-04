@@ -32,7 +32,7 @@ import ru.zaroslikov.incubator.data.entity.ValueEntity
         CustomSpeciesEntity::class,
         CustomSpeciesDayEntity::class,
     ],
-    version = 18,
+    version = 20,
     exportSchema = true
 )
 abstract class InventoryDatabase : RoomDatabase() {
@@ -895,6 +895,41 @@ abstract class InventoryDatabase : RoomDatabase() {
         }
 
         /**
+         * Потребление и тариф — у инкубатора и у закладки одними и теми же пятью
+         * колонками: мощность, дневная и ночная цена киловатт-часа и часы ночного тарифа.
+         *
+         * Обычное добавление колонок, без переноса: о свете приложение до девятнадцатой
+         * версии не знало ничего, и `NULL` у числовых — правда («не указано»), а не
+         * значение по умолчанию. Часы — пустые строки, как `Batch.Time` в десятой: не
+         * спрашивали. Закладка с пустыми полями считается по полям своего инкубатора
+         * (`PowerSettings.over`), так что старые закладки получат свет, как только его
+         * впишут в инкубатор.
+         */
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                for (table in listOf("Incubator", "Batch")) {
+                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `PowerWatts` INTEGER")
+                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `TariffDay` REAL")
+                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `TariffNight` REAL")
+                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `NightStart` TEXT NOT NULL DEFAULT ''")
+                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `NightEnd` TEXT NOT NULL DEFAULT ''")
+                }
+            }
+        }
+
+        /**
+         * `Batch.TimeEnd` — час, в который закладку закончили: выключили инкубатор или
+         * вынули птенцов. Диалог завершения спрашивает его вместе с датой ради счёта за
+         * свет. Пустая строка у всех старых закладок — правда: не спрашивали; тогда концом
+         * считается дата окончания в час закладки, как и до этой версии.
+         */
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `Batch` ADD COLUMN `TimeEnd` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        /**
          * Закрывает открытую базу и забывает её.
          *
          * Нужно ровно одному месту — импорту базы из файла: подменить файл под открытым
@@ -972,6 +1007,8 @@ abstract class InventoryDatabase : RoomDatabase() {
                     MIGRATION_15_16,
                     MIGRATION_16_17,
                     MIGRATION_17_18,
+                    MIGRATION_18_19,
+                    MIGRATION_19_20,
                 )
     }
 }

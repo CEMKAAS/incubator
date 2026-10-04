@@ -115,11 +115,38 @@ internal data class DayAnalytics(
     val hasChart: Boolean get() = hasTemp || hasDamp
 }
 
+/** Замеры по часам суток, раньше — первыми; порядок графика дня. */
+internal fun List<Measurement>.chronological(): List<Measurement> =
+    sortedWith(compareBy({ parseClock(it.time) ?: Int.MAX_VALUE }, { it.id }))
+
+/**
+ * Замеры дня инкубации для истории: свежий — сверху.
+ *
+ * Сутки инкубации начинаются в час закладки ([dayStart], «ЧЧ:ММ»; пусто — полночь), а не
+ * в полночь, и у замера хранится только время. Поэтому «позже» считается от начала
+ * суток инкубации: у закладки, заложенной в 22:29, утренние 07:18 записаны *после*
+ * вечерних 20:37 того же дня, а сортировка по часам — и по тексту, как отдаёт база, —
+ * роняла их в самый низ, и свёрнутая история показывала не последние замеры.
+ *
+ * По разобранным минутам, а не по тексту: «8:05» без ведущего нуля строкой стоит после
+ * «19:00». Неразобранное время — в конце; равные — свежей записью вперёд.
+ */
+internal fun List<Measurement>.newestFirst(dayStart: String): List<Measurement> {
+    val start = parseClock(dayStart) ?: 0
+    return sortedWith(
+        compareByDescending<Measurement> { m ->
+            parseClock(m.time)?.let { (it - start + MinutesPerDay) % MinutesPerDay } ?: -1
+        }.thenByDescending { it.id }
+    )
+}
+
+private const val MinutesPerDay = 24 * 60
+
 /**
  * Собирает сводку дня из замеров и плана на этот день.
  *
- * Замеры приходят из базы по убыванию времени (свежий сверху) — здесь они
- * переворачиваются: график читается слева направо.
+ * Замеры приходят из базы по убыванию времени — здесь они встают по [chronological]:
+ * график читается слева направо.
  *
  * Замер без времени в формате `HH:mm` в график не попадает, но в счётчики попадает:
  * «сколько раз перевернули» от разбора времени не зависит.
@@ -134,9 +161,7 @@ internal fun analyticsOf(
         return DayAnalytics(tempTarget = plan?.temp, dampTarget = plan?.damp)
     }
 
-    val ordered = measurements.sortedWith(
-        compareBy({ parseClock(it.time) ?: Int.MAX_VALUE }, { it.id })
-    )
+    val ordered = measurements.chronological()
 
     val points = ordered.mapNotNull { measurement ->
         val minutes = parseClock(measurement.time) ?: return@mapNotNull null

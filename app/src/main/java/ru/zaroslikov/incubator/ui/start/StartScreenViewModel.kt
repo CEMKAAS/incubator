@@ -19,11 +19,13 @@ import ru.zaroslikov.incubator.domain.model.status
 import ru.zaroslikov.incubator.domain.model.stoppedEarly
 import ru.zaroslikov.incubator.domain.repository.ItemsRepository
 import ru.zaroslikov.incubator.domain.repository.WorkRepository
+import ru.zaroslikov.incubator.ui.clockText
 import ru.zaroslikov.incubator.ui.mvi.MviSharing
 import ru.zaroslikov.incubator.ui.mvi.MviViewModel
 import ru.zaroslikov.incubator.ui.parseDate
 import ru.zaroslikov.incubator.ui.plusDays
 import ru.zaroslikov.incubator.ui.todayText
+import java.util.Date
 
 sealed interface StartIntent {
     /**
@@ -122,31 +124,17 @@ class StartScreenViewModel(
     /**
      * Убирает инкубатор в архив и возвращает обратно.
      *
-     * **Архив прерывает все идущие в инкубаторе закладки** — [stoppedEarly] с причиной
-     * [ARCHIVE_END_REASON], одной датой на всех. Устройство выводят из работы, а закладка
-     * в выключенном инкубаторе — это не закладка: оставить их идущими значило бы считать
-     * в хозяйстве яйца, которых уже никто не греет, и будить по ним каждое утро.
-     * Причина обязательна не только по правилу «прерванная закладка её имеет»: через
-     * полгода ноль вывода надо чем-то объяснить, и «Инкубатор переведён в архив» —
-     * единственное объяснение, которое здесь есть. Спрашивает об этом экран
-     * (`ConfirmArchiveIncubatorDialog`), а не эта функция: писать три закладки в расход
-     * молча нельзя.
+     * **Архив прерывает все идущие закладки** — [stoppedEarly] с причиной [ARCHIVE_END_REASON],
+     * одной датой на всех: закладка в выведенном из работы инкубаторе не закладка, её яйца нельзя
+     * считать идущими и будить по ним каждое утро. Уже завершённые не трогаются. Спрашивает об этом
+     * экран (`ConfirmArchiveIncubatorDialog`), а не эта функция.
      *
-     * Прерываются именно идущие: уже завершённые закладки трогать нечего, а их итог —
-     * птенцы и цена — тем более.
+     * **Возврат из архива ничего не отменяет**: снимает только «просмотр», а закладки возвращают в
+     * работу поштучно через [reopened] — прерванные архивом и до него уже не отличить.
      *
-     * **Возврат из архива ничего не отменяет.** Он снимает с инкубатора «только
-     * просмотр», но прерванная инкубация — это про яйца, а не про список: закладку
-     * возвращают в работу поштучно, её собственным «Вернуть в инкубацию» ([reopened]),
-     * которое и решает, что делать с итогом. Автоматический возврат воскрешал бы и те
-     * закладки, что были прерваны до архива, — по причине их уже не отличить.
-     *
-     * Напоминания снимаются по одной закладке, как и в [deleteIncubator]: расписание
-     * WorkManager живёт вне базы, и никакой каскад до него не достаёт. Порядок — сперва
-     * запись, потом снятие — тот же и по той же причине, что в
-     * [ru.zaroslikov.incubator.ui.batch.BatchDetailViewModel]: потерянное снятие
-     * безобидно (работа проснётся, перечитает закладку и снимет себя сама), а потерянная
-     * запись оставила бы идущую закладку без будильников.
+     * Напоминания снимаются по одной закладке, как в [deleteIncubator]. Сперва запись, потом
+     * снятие: потерянное снятие безобидно (работа перечитает закладку), потерянная запись оставила
+     * бы идущую закладку без будильников.
      */
     private fun setIncubatorHidden(incubator: Incubator, hidden: Boolean) {
         viewModelScope.launch {
@@ -154,11 +142,15 @@ class StartScreenViewModel(
             if (!hidden) return@launch
             // Список закладок берётся из базы прямо сейчас, а не из состояния экрана: между
             // нажатием и подтверждением закладку могли добавить.
+            // Момент — сейчас, и час тоже: им кончается счёт за свет. Без часа он шёл бы до
+            // часа закладки в день архивации, то есть мог уйти на полсуток вперёд.
+            val now = Date()
             val endDate = todayText()
+            val endTime = clockText(now)
             val stopped = fermaRepository.getBatchesFor(incubator.id).first()
                 .filter { it.status == BatchStatus.Active }
                 .map { batch ->
-                    val interrupted = batch.stoppedEarly(ARCHIVE_END_REASON, endDate)
+                    val interrupted = batch.stoppedEarly(ARCHIVE_END_REASON, endDate, endTime)
                     fermaRepository.updateBatch(interrupted)
                     interrupted
                 }

@@ -6,6 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import ru.zaroslikov.incubator.domain.model.Batch
+import ru.zaroslikov.incubator.domain.model.stoppedEarly
 
 /**
  * Закрепляет сводку поздравления: вывод считается от заложенного, деньги — только
@@ -129,5 +130,51 @@ class HatchSummaryTest {
         assertEquals(300, full.invested)
         assertEquals(1150, full.income)
         assertEquals(850, full.profit)
+    }
+
+    @Test
+    fun electricity_isShown_andSubtractedFromProfit() {
+        val summary = hatchSummaryOf(
+            batch(eggAll = 10, hatched = 8, price = 10, chickPrice = 50),
+            rejected = 2,
+            termDays = 21,
+            electricity = ElectricityCost(kwh = 50.4, rubles = 120.4),
+        )
+        assertEquals(120, summary.electricity)
+        assertEquals(50.4, summary.kwh!!, 1e-9)
+        // 400 − 100 − 120.
+        assertEquals(180, summary.profit)
+    }
+
+    @Test
+    fun combinedElectricity_onlyWhenEveryBatchHasIt() {
+        val withLight = hatchSummaryOf(batch(10, 8), 2, 21, ElectricityCost(10.0, 60.0))
+        val without = hatchSummaryOf(batch(10, 8), 2, 21)
+        assertNull(listOf(withLight, without).combined().electricity)
+        assertEquals(120, listOf(withLight, withLight).combined().electricity)
+        assertTrue(listOf(withLight, withLight).combined().hasMoney)
+        assertFalse(without.hasMoney)
+    }
+
+    @Test
+    fun `прерванная — причина, день остановки и остаток яиц`() {
+        val stopped = batch(eggAll = 30, hatched = 0, price = 10)
+            .stoppedEarly("Отключили свет", "06.08.2026")
+        val summary = hatchSummaryOf(stopped, rejected = 4, termDays = 21, stoppedDay = 6)
+
+        assertTrue(summary.stopped)
+        assertEquals("Отключили свет", summary.endReason)
+        assertEquals(6, summary.stoppedDay)
+        assertEquals(26, summary.remaining)
+        assertEquals(300, summary.invested)
+        assertNull(summary.profit)
+    }
+
+    @Test
+    fun `в срок — ни причины, ни дня остановки`() {
+        val summary = hatchSummaryOf(batch(eggAll = 10, hatched = 8), 2, 21, stoppedDay = 21)
+
+        assertFalse(summary.stopped)
+        assertNull(summary.stoppedDay)
     }
 }

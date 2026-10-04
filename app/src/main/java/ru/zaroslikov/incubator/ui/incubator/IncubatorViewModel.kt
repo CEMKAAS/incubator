@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import ru.zaroslikov.incubator.BuildConfig
 import ru.zaroslikov.incubator.domain.incubation.SpeciesCatalog
 import ru.zaroslikov.incubator.domain.model.Batch
 import ru.zaroslikov.incubator.domain.model.Incubator
@@ -21,6 +22,8 @@ import ru.zaroslikov.incubator.domain.stats.IncubatorFinance
 import ru.zaroslikov.incubator.domain.stats.IncubatorStats
 import ru.zaroslikov.incubator.domain.stats.incubatorFinance
 import ru.zaroslikov.incubator.domain.stats.incubatorStats
+import ru.zaroslikov.incubator.rustore.IS_RUSTORE_BUILD
+import ru.zaroslikov.incubator.rustore.ReviewController
 import ru.zaroslikov.incubator.transfer.ScheduleTransferController
 import ru.zaroslikov.incubator.transfer.ScheduleTransferState
 import ru.zaroslikov.incubator.ui.mvi.MviSharing
@@ -69,14 +72,18 @@ sealed interface IncubatorIntent {
 
     /** Итог переноса прочитан экраном — гасим его, чтобы диалог не открылся заново. */
     data object ClearScheduleTransfer : IncubatorIntent
+
+    /**
+     * Карточку итога закрыли. После вывода с птенцами — единственная просьба оценить
+     * приложение (`ReviewController`); прерванная закладка и пустой вывод — худшая минута
+     * для такой просьбы. Только в сборке для RuStore, не чаще раза на версию.
+     */
+    data class CelebrationClosed(val withChicks: Boolean) : IncubatorIntent
 }
 
 /**
- * У экрана инкубатора одноразовых событий нет, и интерфейс пустой не по недосмотру.
- *
- * Всё, что он делает, меняет базу, а список на неё подписан — и обновляется сам.
- * Закрывать экран после записи тоже некому: уходят с него только назад, по нажатию.
- * Типовой параметр [MviViewModel] при этом обязателен, поэтому тип объявлен.
+ * Одноразовых событий у экрана нет: всё, что он делает, меняет базу, а список на неё
+ * подписан. Тип объявлен, потому что его требует [MviViewModel].
  */
 sealed interface IncubatorEffect
 
@@ -93,69 +100,67 @@ class IncubatorViewModel(
     private val itemsRepository: ItemsRepository,
     private val workRepository: WorkRepository,
     private val scheduleTransfer: ScheduleTransferController,
+    private val review: ReviewController,
 ) : MviViewModel<IncubatorUiState, IncubatorIntent, IncubatorEffect>() {
 
-    val incubatorId: Long = checkNotNull(savedStateHandle[IncubatorDestination.itemIdArg])
+    private val incubatorId: Long = checkNotNull(savedStateHandle[IncubatorDestination.itemIdArg])
 
     override val state: StateFlow<IncubatorUiState> =
         combine(
             itemsRepository.getIncubator(incubatorId),
             itemsRepository.getBatchesFor(incubatorId),
-            itemsRepository.getAllSpecies(),
             // Овоскопирования нужны только вкладке «Статистика» — ради отбраковки,
             // которая складывается из графы закладки и итогов её овоскопирований.
             itemsRepository.getCandlingsFor(incubatorId),
-            // Свои виды — ради срока: карточка закладки считает «День N/M» и дату
-            // вывода, подсказка «Инкубация завершена» — момент, когда срок вышел. Для
-            // своего вида и то и другое лежит в базе, и знает об этом только каталог.
+            // Свои виды — ради срока: «День N/M», дата вывода и момент, когда срок
+            // вышел, для своего вида лежат в базе, и знает о них только каталог.
             itemsRepository.getCustomSpecies(),
-        ) { incubator, batches, species, candlings, customSpecies ->
-            // Инкубатора нет — его удалили, пока экран открыт. Раньше подписка на него
-            // не допускала пустого ответа и падала на нём; теперь это обычное состояние
-            // «показывать нечего», из которого экран закрывается навигацией.
-            if (incubator == null) return@combine IncubatorUiState(loading = false)
-            val speciesByBatch = species
-                .groupBy { it.idPT }
-                .mapValues { (_, rows) -> rows.map { it.species } }
+        ) { incubator, batches, candlings, customSpecies ->
+            // Инкубатор удалён, пока экран открыт, — обычное состояние «показывать нечего».
+            if (incubator == null) {
+                return@combine IncubatorUiState(incubatorId = incubatorId, loading = false)
+            }
             val active = batches.filter { it.arhive == "0" }
             val finished = batches.filter { it.arhive != "0" }
+            // Убранные в архив закладки в статистику не входят — ни в шапку, ни в
+            // «Статистику», ни в «Финансы»: архив — это то, что человек отложил из
+            // подсчётов. Спрятать можно только завершённую, так что идущие все здесь.
+            val counted = batches.filter { !it.hidden }
             IncubatorUiState(
+                incubatorId = incubatorId,
                 incubator = incubator,
                 readOnly = incubator.hidden,
-                // Активные закладки сверху: в макете завершённая утка стоит первой лишь
-                // потому, что там так лёг список, а полезнее видеть текущие. Спрятанные
-                // идут последними — их и показывают отдельно, по требованию.
+                // Активные закладки сверху, спрятанные — отдельным списком.
                 batches = active + finished.filter { !it.hidden },
                 hiddenBatches = finished.filter { it.hidden },
-                speciesByBatch = speciesByBatch,
                 activeCount = active.size,
-                finishedCount = finished.size,
                 eggsInWork = active.sumOf { it.eggAll },
-                totalEggs = batches.sumOf { it.eggAll },
-                hatched = batches.sumOf { it.eggAllEND },
-                stats = incubatorStats(batches, candlings),
+                hatched = counted.sumOf { it.eggAllEND },
+                stats = incubatorStats(counted, candlings, catalog = SpeciesCatalog(customSpecies)),
                 // Овоскопирования финансам не нужны: отбраковка на них — это яйца, а
                 // деньгами закладка считается по своим двум ценам и цене инкубатора.
-                finance = incubatorFinance(incubator.price, batches),
+                finance = incubatorFinance(
+                    incubator.price,
+                    counted,
+                    // Свет — без архивных: убранная закладка отложена из подсчётов и
+                    // общих часов с соседками не делит (см. batchElectricity).
+                    batchElectricity(counted, mapOf(incubator.id to incubator)),
+                ),
                 catalog = SpeciesCatalog(customSpecies),
                 loading = false,
             )
         }
-            // Сборка состояния уходит с главного потока. `stateIn(viewModelScope)` собирает
-            // на `Dispatchers.Main.immediate`, а здесь на каждый ответ базы — проходы по
-            // всем закладкам хозяйства и арифметика `:domain` поверх них; на главном
-            // потоке это кадры, отданные не отрисовке.
+            // Арифметика `:domain` на каждый ответ базы — не на главном потоке, куда
+            // `stateIn(viewModelScope)` иначе её посадил бы.
             .flowOn(Dispatchers.Default)
-            // Состояние переноса пристёгивается вторым `combine`, а не шестым потоком в
-            // первом: типизированных перегрузок `combine` ровно пять, а главное — этот
-            // шаг ничего не считает, только копирует поле, и уносить его на другой поток
-            // вместе с арифметикой базы было бы не за что. Ответ контроллера при этом не
-            // ждёт ответа базы: `combine` отдаёт состояние, как только оба потока
-            // ответили хоть раз, а у обоих есть текущее значение.
+            // Состояние переноса — вторым `combine`, после `flowOn`: этот шаг только
+            // копирует поле, и уносить его с главного потока не за что.
             .combine(scheduleTransfer.state) { base, transfer ->
                 base.copy(scheduleTransfer = transfer)
             }
-            .stateIn(viewModelScope, MviSharing.WhileVisible, IncubatorUiState())
+            // Идентификатор есть и в начальном значении: шторки, восстановленные после
+            // поворота, открываются раньше, чем база ответит.
+            .stateIn(viewModelScope, MviSharing.WhileVisible, IncubatorUiState(incubatorId = incubatorId))
 
     override fun onIntent(intent: IncubatorIntent) {
         when (intent) {
@@ -165,6 +170,8 @@ class IncubatorViewModel(
             is IncubatorIntent.ExportBatch -> exportBatch(intent.batch, intent.target)
             is IncubatorIntent.ShareBatch -> shareBatch(intent.batch)
             IncubatorIntent.ClearScheduleTransfer -> scheduleTransfer.clear()
+            is IncubatorIntent.CelebrationClosed ->
+                if (intent.withChicks && IS_RUSTORE_BUILD) review.offerAfterHatch(BuildConfig.VERSION_CODE)
         }
     }
 
@@ -204,6 +211,8 @@ class IncubatorViewModel(
 
 @Immutable
 data class IncubatorUiState(
+    /** Из аргумента маршрута — известен до ответа базы, в отличие от [incubator]. */
+    val incubatorId: Long = 0L,
     val incubator: Incubator? = null,
     /**
      * Инкубатор убран в архив — экран показывает его только на просмотр.
@@ -220,18 +229,12 @@ data class IncubatorUiState(
     /** Что видно в списке: активные, следом завершённые, кроме убранных в архив. */
     val batches: List<Batch> = emptyList(),
     /**
-     * Убранные в архив — отдельным списком, а не флагом внутри [batches].
-     *
-     * Показываются только по нажатию «Архив (N)» под списком, но во всех показателях
-     * выше — «всего яиц», средний вывод, диаграмма по видам — участвуют наравне с
-     * остальными: спрятать закладку значит убрать её с глаз, а не сделать небывшей.
+     * Убранные в архив — отдельным списком, а не флагом внутри [batches]: показываются
+     * только по кнопке «Архив» и в показатели экрана не входят (см. корневой `CLAUDE.md`).
      */
     val hiddenBatches: List<Batch> = emptyList(),
-    val speciesByBatch: Map<Long, List<String>> = emptyMap(),
     val activeCount: Int = 0,
-    val finishedCount: Int = 0,
     val eggsInWork: Int = 0,
-    val totalEggs: Int = 0,
     val hatched: Int = 0,
     /**
      * Всё, что показывает вкладка «Статистика»: итоги сверху, разрезы по видам и

@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.zaroslikov.incubator.ui.AppViewModelProvider
 import ru.zaroslikov.incubator.ui.LocalUnits
+import ru.zaroslikov.incubator.ui.components.PowerFields
 import ru.zaroslikov.incubator.ui.mvi.CollectEffects
 import ru.zaroslikov.incubator.design.components.FieldLabel
 import ru.zaroslikov.incubator.design.components.FieldRadius
@@ -45,15 +46,11 @@ import ru.zaroslikov.incubator.design.theme.DesignType
 
 /**
  * Форма инкубатора в нижней шторке — макет
- * [9:2738](https://www.figma.com/design/B48q96fOq7Nsy569AXrbWY/Untitled?node-id=9-2738).
- *
- * Шторка, а не отдельный экран: так задумано в макете — скруглённый верх, «ручка»
- * и крестик вместо стрелки назад. Поэтому её открывает тот экран, поверх которого
- * она появляется, а маршрута в навигации у неё нет.
+ * [9:2738](https://www.figma.com/design/B48q96fOq7Nsy569AXrbWY/Untitled?node-id=9-2738). Маршрута в
+ * навигации у неё нет: её открывает экран, поверх которого она появляется.
  *
  * @param incubatorId ноль — создание, иначе правка существующего.
- * @param draft черновик формы: свёрнутую шторку открывают тем же вводом, закрытую
- *   крестиком — пустой. См. [SheetDraft].
+ * @param draft черновик формы (см. [SheetDraft]).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -207,6 +204,20 @@ fun AddIncubatorSheet(
                 title = "Автопроветривание",
                 checked = state.autoAiring,
                 onCheckedChange = { update(state.copy(autoAiring = it)) },
+            )
+
+            // Свет — свойство устройства и дома, в котором оно стоит, поэтому вписывают
+            // его здесь один раз. Каждая новая закладка возьмёт эти значения как свои и
+            // даст их поправить под свой режим (`AddBatchViewModel.load`).
+            FormSpacer(16.dp)
+            PowerFields(
+                state = state.power,
+                onChange = { update(state.copy(power = it)) },
+                hint = "Сколько инкубатор берёт из розетки и почём киловатт-час. По ним " +
+                    "«Финансы» считают, во что обошлось электричество каждой закладки. " +
+                    "Новые закладки получают эти значения сами — у каждой их можно " +
+                    "поменять. Если тариф двухзонный, включите «Два тарифа» и укажите, " +
+                    "когда действует ночной.",
             )
 
             FormSpacer(16.dp)

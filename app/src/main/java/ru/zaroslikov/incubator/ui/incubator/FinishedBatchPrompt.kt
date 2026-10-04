@@ -27,13 +27,13 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import ru.zaroslikov.incubator.domain.incubation.SpeciesCatalog
 import ru.zaroslikov.incubator.domain.model.Batch
+import ru.zaroslikov.incubator.ui.batch.batchStartMoment
 import ru.zaroslikov.incubator.ui.batch.baseBatchTitle
-import ru.zaroslikov.incubator.ui.start.speciesEmoji
+import ru.zaroslikov.incubator.ui.start.SpeciesText
 import ru.zaroslikov.incubator.design.components.FormSpacer
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
 import ru.zaroslikov.incubator.ui.daysBetween
-import ru.zaroslikov.incubator.ui.parseDate
 import ru.zaroslikov.incubator.ui.plusDays
 import ru.zaroslikov.incubator.ui.shortDate
 import ru.zaroslikov.incubator.ui.today
@@ -41,39 +41,23 @@ import java.util.Calendar
 import java.util.Date
 
 /**
- * «Инкубация завершена» — подсказка, встречающая на экране инкубатора того, у кого
- * закладка отходила свой срок, пока приложение было закрыто.
- *
- * Зачем вообще: итог закладки — сколько птенцов вывелось — вносит только человек, и
- * пока он его не внёс, закладка висит в работе, а в среднем выводе инкубатора её нет.
- * Ждать, что он сам вспомнит про день вывода, значит терять именно ту цифру, ради
- * которой закладку и заводили.
- *
- * Спрашивает подсказка не сама: кнопка ведёт в те же два диалога завершения
- * (`FinishBatchHost`), которыми закладку завершают из шторки и из меню карточки.
- * Собственная форма ввода птенцов здесь была бы третьей копией одного и того же.
+ * «Инкубация завершена» — подсказка тому, у кого закладка отходила срок, пока приложение было
+ * закрыто: итог (сколько птенцов) вносит только человек, и пока он не внёс, закладки нет в среднем
+ * выводе. Кнопка ведёт в те же два диалога завершения (`FinishBatchHost`), что и шторка и меню
+ * карточки.
  */
 
 /**
  * Момент, когда у закладки истекает срок инкубации: дата вывода в час закладки.
  *
- * Дата вывода — та же, что показывает карточка закладки: начало плюс полный срок вида
- * ([SpeciesCatalog.incubationDays]). Час берётся из [Batch.time] — того самого времени, в которое яйца
- * заложили: двадцать один день у курицы отсчитывается от момента закладки, а не от
- * полуночи, и предлагать итог утром того дня, когда птенцы ещё не проклюнулись, рано.
- *
- * **Это единственный расчёт, в котором [Batch.time] участвует, и границ дня он не
- * двигает.** День инкубации по-прежнему считается целыми сутками от [Batch.data];
- * время решает лишь, с какого часа последнего дня показывать подсказку. Пустое время у
- * закладок, созданных до появления поля, означает «не спрашивали» — тогда весь день
- * вывода считается наступившим, как и было раньше.
- *
- * `null` — срока нет: вид неизвестен или дата начала не разобралась.
+ * Дата — как на карточке: начало плюс [SpeciesCatalog.incubationDays]; час — из [Batch.time]:
+ * итог рано предлагать утром дня вывода. **Это единственный расчёт, где [Batch.time] участвует, и
+ * границ дня он не двигает.** Пустое время (до появления поля) — весь день вывода считается
+ * наступившим. `null` — срока нет: вид неизвестен или дата не разобралась.
  */
 internal fun batchFinishMoment(batch: Batch, catalog: SpeciesCatalog): Date? {
     val total = catalog.incubationDays(batch.type) ?: return null
-    val start = parseDate(batch.data) ?: return null
-    return start.plusDays(total).atTimeOf(batch.time)
+    return batchStartMoment(batch)?.plusDays(total)
 }
 
 /** Закладка, ждущая итога, вместе с моментом, в который у неё вышел срок. */
@@ -182,10 +166,10 @@ internal fun FinishedBatchPrompt(
         onDismissRequest = onLater,
         title = { Text(text = "Инкубация завершена", style = DesignType.SectionTitle) },
         text = {
-            // Три слоя, и у каждого свой голос: факт (срок вышел, когда), то, о чём
-            // спрашивают (закладки — карточкой, как в списке), и пояснение курсивом
-            // (`DesignType.Note`), которое читают один раз. Одним абзацем всё это
-            // сливалось, и глазу было не за что зацепиться.
+            // Факт (срок вышел, когда), затем то, о чём спрашивают (закладки — карточкой,
+            // как в списке), и сама просьба. Пояснение про архив и средний вывод убрано
+            // по просьбе владельца (2026-10-02): кнопки «Внести птенцов» / «Позже» говорят
+            // сами за себя. Одним абзацем всё это сливалось, и глазу было не за что зацепиться.
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 // Срок и момент — двумя строками: «истёк …» с датой и часом длиннее
                 // половины строки и, дописанный следом, рвался посередине даты.
@@ -217,19 +201,6 @@ internal fun FinishedBatchPrompt(
                     else "Внесите, сколько птенцов вывелось.",
                     style = DesignType.Body,
                     color = MaterialTheme.colorScheme.onSurface,
-                )
-                FormSpacer(6.dp)
-                Text(
-                    text = if (several) {
-                        "Закладки уйдут в архив с итогом и попадут в средний вывод инкубатора. " +
-                            "Если вывод ещё идёт — «Позже»; породу без итога можно оставить " +
-                            "пустой и внести позже."
-                    } else {
-                        "Закладка уйдёт в архив с итогом и попадёт в средний вывод инкубатора. " +
-                            "Если вывод ещё идёт — «Позже»: закладка останется в работе."
-                    },
-                    style = DesignType.Note,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },
@@ -266,8 +237,9 @@ private fun DueBatchesCard(name: String, batches: List<Batch>, several: Boolean)
             .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
         if (several) {
-            Text(
-                text = "${speciesEmoji(batch.type)} $name · ${batch.type}",
+            SpeciesText(
+                bird = batch.type,
+                text = "$name · ${batch.type}",
                 style = DesignType.CaptionEmphasis,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
@@ -283,7 +255,8 @@ private fun DueBatchesCard(name: String, batches: List<Batch>, several: Boolean)
             }
         } else {
             DueBatchRow(
-                title = "${speciesEmoji(batch.type)} $name",
+                title = name,
+                bird = batch.type,
                 subtitle = listOf(batch.type, batch.breed).filter { it.isNotBlank() }
                     .distinct().joinToString(" · ").ifBlank { null },
                 eggs = batch.eggAll,
@@ -293,16 +266,27 @@ private fun DueBatchesCard(name: String, batches: List<Batch>, several: Boolean)
 }
 
 @Composable
-private fun DueBatchRow(title: String, subtitle: String?, eggs: Int) {
+private fun DueBatchRow(title: String, subtitle: String?, eggs: Int, bird: String? = null) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = DesignType.ListItemTitle,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (bird != null) {
+                SpeciesText(
+                    bird = bird,
+                    text = title,
+                    style = DesignType.ListItemTitle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                Text(
+                    text = title,
+                    style = DesignType.ListItemTitle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (subtitle != null) {
                 Text(
                     text = subtitle,
@@ -330,8 +314,10 @@ private fun DueBatchRow(title: String, subtitle: String?, eggs: Int) {
  *
  * Пустое или непонятное время оставляет дату как есть — полночь, с которой начинается
  * день вывода. Так же ведут себя закладки, заведённые до появления поля.
+ *
+ * Не `private`: тем же часом начинается и каждый день инкубации (`batchStartMoment`).
  */
-private fun Date.atTimeOf(time: String): Date {
+internal fun Date.atTimeOf(time: String): Date {
     val parts = time.split(":")
     val hour = parts.getOrNull(0)?.trim()?.toIntOrNull() ?: return this
     val minute = parts.getOrNull(1)?.trim()?.toIntOrNull() ?: return this

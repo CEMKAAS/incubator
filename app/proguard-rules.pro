@@ -39,3 +39,13 @@
 -keepclassmembers class ru.zaroslikov.incubator.design.theme.ThemeMode {
     <fields>;
 }
+
+# То же с единицами (`AppSettings.temperatureUnit` / `currency`, `fromName` в Units.kt):
+# без правила выбор °F или валюты молча сбросился бы на °C и рубль, а в профиль
+# AppMetrica («Градусы», «Валюта») ушли бы переименованные константы.
+-keepclassmembers class ru.zaroslikov.incubator.settings.TemperatureUnit {
+    <fields>;
+}
+-keepclassmembers class ru.zaroslikov.incubator.settings.Currency {
+    <fields>;
+}

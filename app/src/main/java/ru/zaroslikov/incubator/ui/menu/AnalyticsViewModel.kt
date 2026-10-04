@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import ru.zaroslikov.incubator.domain.incubation.SpeciesCatalog
 import ru.zaroslikov.incubator.domain.model.BatchStatus
 import ru.zaroslikov.incubator.domain.model.User
 import ru.zaroslikov.incubator.domain.model.status
@@ -16,6 +17,7 @@ import ru.zaroslikov.incubator.domain.stats.IncubatorFinance
 import ru.zaroslikov.incubator.domain.stats.IncubatorStats
 import ru.zaroslikov.incubator.domain.stats.incubatorFinance
 import ru.zaroslikov.incubator.domain.stats.incubatorStats
+import ru.zaroslikov.incubator.ui.incubator.batchElectricity
 import ru.zaroslikov.incubator.ui.mvi.MviSharing
 import ru.zaroslikov.incubator.ui.mvi.MviViewModel
 
@@ -38,21 +40,12 @@ sealed interface AnalyticsIntent {
 sealed interface AnalyticsEffect
 
 /**
- * «Аналитика»: всё хозяйство одним счётом, плюс имя владельца.
+ * «Аналитика»: всё хозяйство одним счётом, плюс имя владельца. Считает теми же функциями `:domain`,
+ * что и экран одного инкубатора, — иначе сводные числа разошлись бы с частными. Цена техники в
+ * [incubatorFinance] — сумма цен всех инкубаторов (слагаемое расхода и знаменатель окупаемости);
+ * меняются только подписи — [ru.zaroslikov.incubator.ui.incubator.TabScope].
  *
- * Считает ровно теми же функциями `:domain`, что и экран одного инкубатора, — им
- * безразлично, из одного устройства список закладок или из пяти. Это не экономия строк,
- * а условие того, чтобы сводные числа сходились с частными: вторая реализация «того же
- * счёта, но по всем» разошлась бы с первой при первой же правке формулы, и хозяйство
- * увидело бы два разных ответа на один вопрос.
- *
- * Цена техники в [incubatorFinance] — сумма цен всех инкубаторов. Подстановка честная:
- * внутри она входит слагаемым в расход и знаменателем в окупаемость, и оба смысла у
- * суммы те же. Меняются только подписи, за которые отвечает
- * [ru.zaroslikov.incubator.ui.incubator.TabScope].
- *
- * Состояние — чистая функция от базы, поэтому `combine` со `stateIn` прямо в [state]:
- * своего ввода у экрана нет, и держать локальный поток было бы нечем наполнять.
+ * Состояние — чистая функция от базы: `combine` со `stateIn` прямо в [state].
  */
 class AnalyticsViewModel(
     private val itemsRepository: ItemsRepository,
@@ -64,10 +57,22 @@ class AnalyticsViewModel(
             itemsRepository.getAllIncubators(),
             itemsRepository.getAllBatches(),
             itemsRepository.getAllCandlings(),
-        ) { user, incubators, batches, candlings ->
+            // Каталог — только чтобы история назвала овоскопирование своего вида по счёту.
+            itemsRepository.getCustomSpecies(),
+        ) { user, allIncubators, allBatches, candlings, customSpecies ->
+            // Инкубатор в архиве выпадает из аналитики хозяйства целиком — его закладки,
+            // его цена, он сам в счёте устройств: архив здесь значит «как будто не было»,
+            // ровно как у отдельной закладки (просьба владельца, 2026-10-02).
+            val incubators = allIncubators.filter { !it.hidden }
+            val workingIds = incubators.mapTo(HashSet()) { it.id }
+            val batches = allBatches.filter { it.incubatorId in workingIds }
             // Через status, а не сравнением arhive руками: корневой CLAUDE.md прямо
             // предписывает новому UI-коду спрашивать трёхзначный статус закладки.
             val active = batches.filter { it.status == BatchStatus.Active }
+            // Убранные в архив закладки в аналитику хозяйства не входят — то же правило,
+            // что на экране инкубатора (`IncubatorViewModel`), иначе сумма по хозяйству
+            // разошлась бы с суммой его инкубаторов.
+            val counted = batches.filter { !it.hidden }
             AnalyticsUiState(
                 user = user,
                 incubatorCount = incubators.size,
@@ -77,11 +82,17 @@ class AnalyticsViewModel(
                 // сказать, в каком устройстве это было, а на экране одного инкубатора
                 // тот же вызов идёт без карты и строка остаётся прежней.
                 stats = incubatorStats(
-                    batches = batches,
+                    batches = counted,
                     candlings = candlings,
                     incubatorNames = incubators.associate { it.id to it.name },
+                    catalog = SpeciesCatalog(customSpecies),
                 ),
-                finance = incubatorFinance(incubators.sumOf { it.price }, batches),
+                finance = incubatorFinance(
+                    incubators.sumOf { it.price },
+                    counted,
+                    // Без архивных, как на экране инкубатора, — см. batchElectricity.
+                    batchElectricity(counted, incubators.associateBy { it.id }),
+                ),
                 // Инкубатор без цены входит в сумму нулём, и окупаемость хозяйства
                 // считается от заниженной цены техники — то есть выглядит лучше, чем
                 // есть. Это та же недосказанность, ради которой в IncubatorFinance

@@ -32,6 +32,32 @@ class BatchAnalyticsTest {
         note: String = "",
     ) = Measurement(id, 1, time, temp, damp, over, airingCount, airingTime, note)
 
+    // --- Порядок истории замеров ---
+
+    @Test
+    fun `history counts freshness from the laying hour, so morning after midnight is newest`() {
+        // Заложили в 22:29: сутки идут с 22:29 до 22:29, и 07:18 записано после 23:10.
+        val rows = listOf(
+            measurement(1, "23:10"),
+            measurement(2, "07:18"),
+            measurement(3, "8:05"),
+            measurement(4, "22:40"),
+        )
+        assertEquals(listOf(3L, 2L, 1L, 4L), rows.newestFirst("22:29").map { it.id })
+    }
+
+    @Test
+    fun `history without a laying hour is plain newest first, unparseable last`() {
+        val rows = listOf(
+            measurement(1, "08:00"),
+            measurement(2, "19:00"),
+            measurement(3, "8:30"),
+            measurement(4, "?"),
+            measurement(5, "19:00"),
+        )
+        assertEquals(listOf(5L, 2L, 3L, 1L, 4L), rows.newestFirst("").map { it.id })
+    }
+
     // --- Точки графика ---
 
     @Test

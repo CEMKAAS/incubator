@@ -17,28 +17,43 @@ import ru.zaroslikov.incubator.domain.model.CustomSpecies
 import ru.zaroslikov.incubator.domain.model.CustomSpeciesDay
 import ru.zaroslikov.incubator.domain.model.Incubator
 import ru.zaroslikov.incubator.domain.model.Measurement
+import ru.zaroslikov.incubator.domain.model.PowerSettings
 import ru.zaroslikov.incubator.domain.model.Species
 import ru.zaroslikov.incubator.domain.model.Time
 import ru.zaroslikov.incubator.domain.model.User
 import ru.zaroslikov.incubator.domain.model.Value
 
 fun IncubatorEntity.toDomain(): Incubator = Incubator(
-    id, name, capacity, brand, model, price, note, autoTurn, autoAiring, hidden
+    id, name, capacity, brand, model, price, note, autoTurn, autoAiring, hidden,
+    power = PowerSettings(powerWatts, tariffDay, tariffNight, nightStart, nightEnd),
 )
 
 fun Incubator.toEntity(): IncubatorEntity = IncubatorEntity(
-    id, name, capacity, brand, model, price, note, autoTurn, autoAiring, hidden
+    id, name, capacity, brand, model, price, note, autoTurn, autoAiring, hidden,
+    powerWatts = power.watts,
+    tariffDay = power.dayPrice,
+    tariffNight = power.nightPrice,
+    nightStart = power.nightStart,
+    nightEnd = power.nightEnd,
 )
 
 fun BatchEntity.toDomain(): Batch = Batch(
     id, title, type, data, eggAll, eggAllEND, airing, over, arhive, dateEnd, note, incubatorId,
     price, pricePerEgg, endReason, chickPrice, chickPricePerHead, hidden, time, eggRejected,
     breed = breed,
+    power = PowerSettings(powerWatts, tariffDay, tariffNight, nightStart, nightEnd),
+    timeEnd = timeEnd,
 )
 
 fun Batch.toEntity(): BatchEntity = BatchEntity(
     id, title, type, data, eggAll, eggAllEND, airing, over, arhive, dateEnd, note, incubatorId,
-    breed, price, pricePerEgg, endReason, chickPrice, chickPricePerHead, hidden, time, eggRejected
+    breed, price, pricePerEgg, endReason, chickPrice, chickPricePerHead, hidden, time, eggRejected,
+    powerWatts = power.watts,
+    tariffDay = power.dayPrice,
+    tariffNight = power.nightPrice,
+    nightStart = power.nightStart,
+    nightEnd = power.nightEnd,
+    timeEnd = timeEnd,
 )
 
 fun ValueEntity.toDomain(): Value = Value(

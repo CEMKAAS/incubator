@@ -14,9 +14,10 @@ import ru.zaroslikov.incubator.domain.model.status
  * **Журнала операций под это не заведено, и не нужно.** Деньги в приложении
  * записываются дважды: [Batch.price] с [Batch.pricePerEgg] — во что обошлись яйца,
  * [Batch.chickPrice] с [Batch.chickPricePerHead] — за сколько ушли птенцы, и
- * `Incubator.price` — во что обошлось само устройство. Больше приложение о деньгах
- * ничего не знает: ни электричества, ни корма, ни отдельного журнала операций, — и
- * весь раздел выводится из этих трёх чисел.
+ * `Incubator.price` — во что обошлось само устройство. Четвёртое — электричество — не
+ * вводится суммой, а считается из потребления и тарифа инкубатора или закладки
+ * (`PowerSettings`, [electricityCosts]). Больше приложение о деньгах ничего не знает: ни
+ * корма, ни отдельного журнала операций, — и весь раздел выводится из этих чисел.
  *
  * Порода в деньгах не участвует: в одной закладке одна порода, и «сколько принесла
  * порода» — это сумма по её закладкам, а не строка внутри одной из них.
@@ -66,18 +67,29 @@ data class BatchFinance(
     val income: Int,
     /** Деньги за невылупившиеся яйца. Считаются только у завершённых закладок. */
     val lost: Int,
+    /**
+     * Электричество закладки в рублях — её доля счёта за инкубатор, см. [electricityCosts].
+     * `null` — посчитать не из чего: ни у неё, ни у инкубатора нет мощности или тарифа.
+     * У идущей — сколько набежало к этому часу.
+     */
+    val electricity: Int? = null,
+    /** Киловатт-часы за этими рублями; `null` вместе с [electricity]. */
+    val kwh: Double? = null,
+    /** Часть времени закладка делила инкубатор с другой, и счёт за те часы поделён. */
+    val electricityShared: Boolean = false,
 ) {
-    /** Расход закладки. Сегодня это в точности [invested] — других расходов нет. */
-    val expense: Int get() = invested
+    /** Расход закладки: яйца плюс электричество. */
+    val expense: Int get() = invested + (electricity ?: 0)
 
     /** Итог: доход минус расход. `null` у идущей — итога у неё ещё не было. */
-    val profit: Int? get() = if (status == BatchStatus.Active) null else income - invested
+    val profit: Int? get() = if (status == BatchStatus.Active) null else income - expense
 
     val hasEggPrice: Boolean get() = eggPrice != null
     val hasChickPrice: Boolean get() = chickPrice != null
+    val hasElectricity: Boolean get() = electricity != null
 
-    /** Есть ли о чём говорить: заполнена хотя бы одна из двух цен. */
-    val known: Boolean get() = hasEggPrice || hasChickPrice
+    /** Есть ли о чём говорить: заполнена хотя бы одна цена или посчитано электричество. */
+    val known: Boolean get() = hasEggPrice || hasChickPrice || hasElectricity
 }
 
 /**
@@ -98,9 +110,11 @@ data class BatchFinance(
  * [incubatorPrice] — только техника.
  *
  * Из этого же следует [payback]: он считается по [profitOnBatches] — прибыли от закладок
- * до вычета техники, — а не по [balance], в котором техника уже вычтена. Связь между
- * ними ровная и её стоит держать в голове: `balance >= 0` тогда и только тогда, когда
- * `payback >= 100`.
+ * до вычета техники, — а не по [balance], в котором техника уже вычтена. И, в отличие от
+ * баланса, только по **завершённым** закладкам: окупаемость — итог, а у идущей итога ещё
+ * нет. Поэтому связь между ними ровная, пока ничего не идёт: `balance >= 0` тогда и
+ * только тогда, когда `payback >= 100`; идущая закладка опускает баланс на свои
+ * [activeInvested], а окупаемость не трогает.
  *
  * Все три средних ([expensePerEgg], [avgChickPrice], [chickCost]) — целые рубли: копеек
  * в приложении нет нигде, ни в форме закладки, ни в плитках-итогах под ней. Инкубатор ни
@@ -146,16 +160,34 @@ data class IncubatorFinance(
     val batchesWithoutEggPrice: Int = 0,
     /** Завершённых закладок, у которых не заполнили цену птенцов. */
     val batchesWithoutChickPrice: Int = 0,
+    /**
+     * Электричество всех закладок, включая набежавшее у идущих, в рублях — сумма долей
+     * [BatchFinance.electricity]. Ноль — либо не считали, либо не из чего: различает
+     * [electricityKnown].
+     */
+    val electricityExpense: Int = 0,
+    /** Сколько из [electricityExpense] приходится на идущие закладки. */
+    val activeElectricity: Int = 0,
+    /** Киловатт-часы за [electricityExpense]. */
+    val kwh: Double = 0.0,
+    /** У скольких закладок электричество посчитано. */
+    val batchesWithElectricity: Int = 0,
+    /** У скольких — нет: ни у них, ни у инкубатора не указаны мощность и тариф. */
+    val batchesWithoutElectricity: Int = 0,
 ) {
     /**
-     * Общий расход хозяйства: яйца всех закладок плюс цена самого инкубатора.
+     * Общий расход хозяйства: яйца и электричество всех закладок плюс цена самого
+     * инкубатора.
      *
-     * Два слагаемых разной природы — расходуемое сырьё и разовая покупка техники, — и
-     * экран обязан называть их обоими («инкубатор + яйца»). Складываются они потому, что
-     * заплачено за то и другое одними деньгами: хозяйство не в плюсе, пока не вернуло
-     * себе и то, и другое.
+     * Слагаемые разной природы — расходуемое сырьё, счёт за свет и разовая покупка
+     * техники, — и экран обязан их называть («инкубатор + яйца + свет»). Складываются
+     * они потому, что заплачено за всё одними деньгами: хозяйство не в плюсе, пока не
+     * вернуло себе всё.
      */
-    val expense: Int get() = eggsExpense + incubatorPrice
+    val expense: Int get() = eggsExpense + electricityExpense + incubatorPrice
+
+    /** Хоть у одной закладки электричество посчитано. */
+    val electricityKnown: Boolean get() = batchesWithElectricity > 0
 
     /** Текущий баланс: доход минус весь расход, включая технику. */
     val balance: Int get() = income - expense
@@ -164,13 +196,26 @@ data class IncubatorFinance(
     val invested: Int get() = eggsExpense
 
     /**
-     * Прибыль от закладок до вычета техники — то, чем инкубатор себя отбивает.
+     * Прибыль завершённых закладок до вычета техники — то, чем инкубатор себя отбивает.
      *
-     * Ровно прежний баланс, до того как в него включили цену инкубатора. Отдельным
-     * именем, а не выражением по месту: по нему считается [payback], и «прибыль минус
-     * техника плюс техника» в формуле окупаемости читалось бы как ошибка.
+     * Только завершённые, по просьбе владельца (2026-10-01): деньги идущей закладки уже
+     * в [eggsExpense], а выручки у неё ещё нет, и каждая новая закладка роняла
+     * окупаемость в тот самый момент, когда ничего плохого не случилось. Выручка у идущей
+     * всегда ноль, поэтому вычесть достаточно её расходов — яиц [activeInvested] и
+     * набежавшего электричества [activeElectricity].
+     *
+     * Отдельным именем, а не выражением по месту: по нему считается [payback], и
+     * «прибыль минус техника плюс техника» в формуле окупаемости читалось бы как ошибка.
      */
-    val profitOnBatches: Int get() = income - eggsExpense
+    val profitOnBatches: Int get() =
+        income - (eggsExpense - activeInvested) - (electricityExpense - activeElectricity)
+
+    /**
+     * Сколько завершённые закладки заработали сверх цены техники — то, что печатается,
+     * когда окупаемость перешла сто процентов. Не [balance]: тот ещё придавлен яйцами
+     * идущих закладок и при «окупился» мог бы показать минус.
+     */
+    val profitOverEquipment: Int get() = profitOnBatches - incubatorPrice
 
     /**
      * Расход на одно яйцо — средняя цена, по которой яйца покупали.
@@ -200,6 +245,10 @@ data class IncubatorFinance(
      * себестоимость первого птенца равнялась бы цене инкубатора. Это цена яиц на голову,
      * и рядом с [avgChickPrice] она отвечает на вопрос «сколько я зарабатываю с птенца»;
      * вопрос «отбил ли я технику» отвечает [payback].
+     *
+     * Электричество тех же закладок входит в числитель: его, в отличие от техники,
+     * сжигают ради этих самых птенцов. Закладки без цены яиц в счёт не идут и своим
+     * светом — иначе себестоимость сложилась бы из одного электричества.
      */
     val chickCost: Int? get() = if (hatchedWithCost > 0) costOfHatched / hatchedWithCost else null
 
@@ -213,7 +262,8 @@ data class IncubatorFinance(
      * Убыток — это ноль процентов, а не минус: «минус 40 % окупаемости» не значит
      * ничего. Больше ста процентов, наоборот, оставлено как есть — это ровно тот случай,
      * ради которого показатель и заведён, и ровно та отметка, на которой [balance]
-     * переходит через ноль. `null` — цену инкубатора не указывали.
+     * переходит через ноль, если идущих закладок нет. `null` — цену инкубатора не
+     * указывали.
      */
     val payback: Int? get() =
         if (incubatorPrice > 0) profitOnBatches.coerceAtLeast(0) * 100 / incubatorPrice else null
@@ -225,16 +275,24 @@ data class IncubatorFinance(
 /**
  * Считает финансы инкубатора по его цене и его закладкам.
  *
- * Спрятанные в архив закладки приходят сюда наравне с остальными: спрятать закладку
- * значит убрать её с глаз, а не отменить потраченные на неё деньги.
+ * Какие закладки сюда приходят, решает вызывающий: экраны отдают их без убранных в архив.
+ *
+ * [electricity] — электричество закладок по их id, посчитанное [electricityCosts]. Оно
+ * считается снаружи и раньше, по тем же закладкам, что приходят сюда, — без убранных в
+ * архив (просьба владельца, 2026-10-02): убранная в архив всё равно что удалена, и общие
+ * часы делят между собой только оставшиеся.
  */
-fun incubatorFinance(incubatorPrice: Int, batches: List<Batch>): IncubatorFinance {
+fun incubatorFinance(
+    incubatorPrice: Int,
+    batches: List<Batch>,
+    electricity: Map<Long, ElectricityCost> = emptyMap(),
+): IncubatorFinance {
     if (batches.isEmpty()) {
         return IncubatorFinance(incubatorPrice = incubatorPrice.coerceAtLeast(0))
     }
 
     val rows = batches
-        .map { batchFinanceOf(it) }
+        .map { batchFinanceOf(it, electricity[it.id]) }
         // Идущие сверху — их деньги ещё в работе и интересны раньше прошлогодних;
         // завершённые дальше, свежие раньше старых. Дата — текст «dd.MM.yyyy»,
         // сортировать его как строку нельзя, поэтому пересобираем в ISO.
@@ -257,12 +315,18 @@ fun incubatorFinance(incubatorPrice: Int, batches: List<Batch>): IncubatorFinanc
         batches = rows,
         pricedEggs = withEggPrice.sumOf { it.eggs },
         pricedChicks = rows.filter { it.hasChickPrice }.sumOf { it.hatched },
-        costOfHatched = finishedWithEggPrice.sumOf { it.invested },
+        costOfHatched = finishedWithEggPrice.sumOf { it.expense },
         hatchedWithCost = finishedWithEggPrice.sumOf { it.hatched },
         batchesWithoutEggPrice = rows.count { !it.hasEggPrice },
         // Только завершённые: у идущей птенцов ещё нет, и цены им взяться неоткуда —
         // упрекать её в незаполненной графе не за что.
         batchesWithoutChickPrice = finished.count { !it.hasChickPrice },
+        electricityExpense = rows.sumOf { it.electricity ?: 0 },
+        activeElectricity = rows.filter { it.status == BatchStatus.Active }
+            .sumOf { it.electricity ?: 0 },
+        kwh = rows.sumOf { it.kwh ?: 0.0 },
+        batchesWithElectricity = rows.count { it.hasElectricity },
+        batchesWithoutElectricity = rows.count { !it.hasElectricity },
     )
 }
 
@@ -270,8 +334,10 @@ fun incubatorFinance(incubatorPrice: Int, batches: List<Batch>): IncubatorFinanc
  * Деньги одной закладки — строка «Финансов». Открыта наружу ради [hatchSummaryOf]:
  * поздравление после вывода печатает вложения и выручку, и считать их должно то же
  * место, что и вкладка, иначе через минуту та назовёт другую сумму.
+ *
+ * [electricity] — её доля счёта за свет; `null` — посчитать не из чего.
  */
-fun batchFinanceOf(batch: Batch): BatchFinance {
+fun batchFinanceOf(batch: Batch, electricity: ElectricityCost? = null): BatchFinance {
     val finished = batch.status != BatchStatus.Active
     val eggPrice = eggPriceOf(batch)
     val chickPrice = chickPriceOf(batch)
@@ -300,6 +366,9 @@ fun batchFinanceOf(batch: Batch): BatchFinance {
         lost = if (finished && eggPrice != null) {
             eggPrice * (batch.eggAll - batch.eggAllEND).coerceAtLeast(0)
         } else 0,
+        electricity = electricity?.roundedRubles,
+        kwh = electricity?.kwh,
+        electricityShared = electricity?.shared == true,
     )
 }
 

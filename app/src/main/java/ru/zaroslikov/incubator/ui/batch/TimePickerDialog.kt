@@ -23,12 +23,7 @@ import androidx.compose.ui.window.Dialog
 import ru.zaroslikov.incubator.formatterTime
 
 /**
- * Выбор времени напоминания.
- *
- * Диалог остался с прежних форм и в макете
- * [12:3555](https://www.figma.com/design/B48q96fOq7Nsy569AXrbWY/Untitled?node-id=12-3555)
- * не нарисован — в нём показано только само поле. Material-овский `TimePicker`
- * внутри выглядит как системный, поэтому переводить его на цвета макета нечего.
+ * Выбор времени (напоминания, час закладки). В макете не нарисован — только само поле.
  *
  * @param showDialog вызывается и при подтверждении, и при отмене; при отмене приходит
  *        то же время, что и передали, — вызывающему не нужно различать эти случаи.
@@ -36,9 +31,7 @@ import ru.zaroslikov.incubator.formatterTime
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TimePicker(time: String, showDialog: (String) -> Unit) {
-
-    // Разбор терпит к мусору: время закладки у старых закладок пустое, и «ЧЧ» с «ММ»
-    // взять неоткуда, а падать посреди формы диалог не должен.
+    // Время у старых закладок пустое: разбор терпит мусор, а диалог не должен падать.
     val parts = time.split(":")
     val timeState = rememberTimePickerState(
         initialHour = parts.getOrNull(0)?.toIntOrNull()?.coerceIn(0, 23) ?: FALLBACK_HOUR,

@@ -20,7 +20,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -50,34 +49,26 @@ import ru.zaroslikov.incubator.design.components.TileRow
 import ru.zaroslikov.incubator.design.components.tileWeight
 import ru.zaroslikov.incubator.design.components.clearFocusOnTap
 import ru.zaroslikov.incubator.ui.incubator.formatMoney
+import ru.zaroslikov.incubator.ui.incubator.atTimeOf
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
 
 /**
- * Два диалога завершения инкубации — их открывает кнопка внизу «Обзора» в
- * [BatchDetailSheet]. Какой именно откроется, решает [BatchDetailUiState.readyToFinish]:
- * вышел срок или нет.
+ * Два диалога завершения инкубации; какой откроется, решает [BatchDetailUiState.readyToFinish].
  *
- * Макета у них нет: собраны из тех же кирпичиков, что и формы в шторках
- * ([FieldLabel], [SheetTextField], [PriceRow]), чтобы не выглядеть чужими.
+ * Макета нет: собраны из тех же кирпичиков, что и формы в шторках ([FieldLabel],
+ * [SheetTextField], [PriceRow]).
  *
- * Почему вопросы разные. Досрочное завершение означает, что птенцов не будет вовсе:
- * спрашивать «сколько вывелось» бессмысленно, зато нужна причина — через полгода по
- * одной дате не вспомнить, почему партия кончилась ничем, — и стоит сказать прямо, что
- * все яйца уходят в расход. Завершение в срок наоборот: причины нет, а есть итог, ради
- * которого закладку и заводили, то есть птенцы и их цена.
- *
- * Отдельный файл, а не низ [BatchDetailSheet]: тот и без них перевалил за две с
- * половиной тысячи строк.
+ * Вопросы разные. Досрочное завершение — птенцов не будет: нужна причина (через полгода по
+ * одной дате её не вспомнить) и прямое «все яйца уходят в расход». Завершение в срок —
+ * итог: птенцы и их цена.
  */
 
 /**
  * Выбирает, каким из двух диалогов завершать закладку, и шлёт событие в аналитику.
  *
- * Общая точка входа для обоих мест, откуда закладку завершают: кнопки внизу «Обзора» в
- * [BatchDetailSheet] и пункта «Убрать в архив» в меню карточки на экране инкубатора.
- * Раньше выбор ветки лежал в шторке — оттуда меню карточки его бы не достало, а второй
- * такой же `if` неминуемо разошёлся бы с первым.
+ * Общая точка входа для кнопки «Обзора» ([BatchDetailSheet]) и пункта «Убрать в архив» в
+ * меню карточки: второй такой же `if` неминуемо разошёлся бы с первым.
  *
  * Ничего не рисует, пока закладка не прочитана или уже завершена: завершать нечего.
  *
@@ -89,8 +80,8 @@ internal fun FinishBatchDialogs(
     state: BatchDetailUiState,
     rejected: Int,
     onDismiss: () -> Unit,
-    onFinish: (outcome: HatchOutcome) -> Unit,
-    onFinishEarly: (reason: String) -> Unit,
+    onFinish: (outcome: HatchOutcome, moment: FinishMoment) -> Unit,
+    onFinishEarly: (reason: String, moment: FinishMoment) -> Unit,
 ) {
     if (!state.loaded || state.finished) return
     val remaining = (state.eggAll - rejected).coerceAtLeast(0)
@@ -98,12 +89,12 @@ internal fun FinishBatchDialogs(
     if (state.readyToFinish) {
         FinishOnTimeDialog(
             state = state,
-            remaining = remaining,
+            candling = (rejected - state.eggRejected).coerceAtLeast(0),
             onDismiss = onDismiss,
-            onConfirm = { outcome ->
+            onConfirm = { outcome, moment ->
                 // Имя события с прежнего экрана закладки — аналитика остаётся сравнимой.
                 Analytics.report(Events.FINISH_ON_TIME, finishParams(state, outcome.hatched))
-                onFinish(outcome)
+                onFinish(outcome, moment)
                 // Просьба оценить приложение отсюда ушла: после записи над экраном
                 // встаёт поздравление с салютом (`HatchCelebrationDialog`), и окно
                 // RuStore поверх него было бы окном поверх праздника. Она приходит по
@@ -115,9 +106,9 @@ internal fun FinishBatchDialogs(
             state = state,
             remaining = remaining,
             onDismiss = onDismiss,
-            onConfirm = { reason ->
+            onConfirm = { reason, moment ->
                 Analytics.report(Events.FINISH_EARLY, finishParams(state, 0, reason))
-                onFinishEarly(reason)
+                onFinishEarly(reason, moment)
             },
         )
     }
@@ -127,26 +118,23 @@ internal fun FinishBatchDialogs(
  * Те же диалоги для того, у кого нет под рукой прочитанной закладки, — меню карточки на
  * экране инкубатора.
  *
- * Собственный [BatchDetailViewModel] под отдельным ключом: шторка закладки на том же
- * экране держит свой, и без ключа они оказались бы одним и тем же объектом — открытое
- * меню карточки перезагружало бы шторку под собой. Ключ постоянный, а не по
- * идентификатору: [BatchDetailIntent.Load] и так сбрасывает всё состояние, а ключ на
- * каждую закладку копил бы в хранилище по объекту на каждую открытую карточку.
+ * Собственный [BatchDetailViewModel] под постоянным ключом: без ключа он был бы тем же
+ * объектом, что у шторки закладки на том же экране, и меню перезагружало бы шторку под
+ * собой. Ключ не по id — [BatchDetailIntent.Load] и так сбрасывает состояние.
  *
  * [onFinished] вызывается уже после записи в базу; список закладок под меню на потоке и
- * перечитается сам. Сводка в нём — для поздравления, и она есть только у закладки,
- * доведённой до срока с птенцами (см. `BatchDetailEffect.Finished`).
+ * перечитается сам. Сводка в нём — для карточки итога: поздравления у закладки,
+ * доведённой до срока с птенцами, и «Инкубация прервана» у прерванной (см.
+ * `BatchDetailEffect.Finished`).
  *
- * @param hide убрать закладку в архив тем же сохранением. Так завершает «Убрать в архив»
- *        из меню карточки: пункт обещает архив, и оставлять после него завершённую
- *        карточку в списке — значит требовать второго такого же нажатия. Подсказка
- *        «Инкубация завершена» этот флаг не ставит: она про итог, а не про список.
+ * @param hide убрать закладку в архив тем же сохранением (так завершает «Убрать в архив»:
+ *        пункт обещает архив). Подсказка «Инкубация завершена» флаг не ставит: она про итог.
  */
 @Composable
 internal fun FinishBatchHost(
     batchId: Long,
     onDismiss: () -> Unit,
-    onFinished: (hatched: HatchSummary?) -> Unit,
+    onFinished: (summary: HatchSummary?) -> Unit,
     hide: Boolean = false,
     viewModel: BatchDetailViewModel = viewModel(
         key = "batch-finish",
@@ -162,7 +150,8 @@ internal fun FinishBatchHost(
     // `BatchDetailViewModel.archive`.
     CollectEffects(viewModel) { effect ->
         when (effect) {
-            is BatchDetailEffect.Finished -> onFinished(effect.hatched)
+            is BatchDetailEffect.Finished ->
+                if (effect.batchId == batchId) onFinished(effect.summary)
         }
     }
 
@@ -170,9 +159,11 @@ internal fun FinishBatchHost(
         state = state.summary,
         rejected = state.rejectedTotal,
         onDismiss = onDismiss,
-        onFinish = { outcome -> viewModel.onIntent(BatchDetailIntent.Finish(outcome, hide)) },
-        onFinishEarly = { reason ->
-            viewModel.onIntent(BatchDetailIntent.FinishEarly(reason, hide))
+        onFinish = { outcome, moment ->
+            viewModel.onIntent(BatchDetailIntent.Finish(outcome, moment, hide))
+        },
+        onFinishEarly = { reason, moment ->
+            viewModel.onIntent(BatchDetailIntent.FinishEarly(reason, moment, hide))
         },
     )
 }
@@ -225,7 +216,7 @@ internal fun FinishGroupHost(
     FinishGroupDialog(
         items = state.items,
         onDismiss = onDismiss,
-        onConfirm = { outcomes -> viewModel.onIntent(FinishGroupIntent.Finish(outcomes)) },
+        onConfirm = { outcomes, moment -> viewModel.onIntent(FinishGroupIntent.Finish(outcomes, moment)) },
     )
 }
 
@@ -245,7 +236,7 @@ internal fun FinishGroupHost(
 internal fun FinishGroupDialog(
     items: List<FinishGroupItem>,
     onDismiss: () -> Unit,
-    onConfirm: (Map<Long, HatchOutcome>) -> Unit,
+    onConfirm: (Map<Long, HatchOutcome>, FinishMoment) -> Unit,
 ) {
     val currency = LocalUnits.current.currency
     // По идентификатору, а не по месту в списке: порода, завершённая из другого места,
@@ -256,6 +247,13 @@ internal fun FinishGroupDialog(
     val scrollState = rememberScrollState()
 
     val filled = items.filter { rows[it.batch.id]?.hatched?.isNotBlank() == true }
+    // Один момент на всю партию: лоток вынимают из одного инкубатора разом.
+    var moment by rememberSaveable(stateSaver = FinishMomentSaver) { mutableStateOf(finishMomentNow()) }
+    val momentError = finishMomentError(
+        moment,
+        items.mapNotNull { batchStartMoment(it.batch) }.maxOrNull(),
+    )
+    val canConfirm = filled.isNotEmpty() && momentError == null
     val partial = filled.isNotEmpty() && filled.size < items.size
 
     AlertDialog(
@@ -294,14 +292,14 @@ internal fun FinishGroupDialog(
                     SheetTextField(
                         value = row.hatched,
                         onValueChange = {
-                            rows = rows + (batch.id to row.copy(hatched = clampCount(it, batch.eggAll)))
+                            rows = rows + (batch.id to row.copy(hatched = clampCount(it, hatchLimit(batch.eggAll, item.candling))))
                         },
                         placeholder = "—",
                         numeric = true,
                     )
                     FormSpacer(6.dp)
                     Text(
-                        text = hatchedHint(batch.eggAll, item.remaining),
+                        text = hatchedHint(eggAll = batch.eggAll, candling = item.candling, hatched = row.hatched),
                         style = DesignType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -336,18 +334,21 @@ internal fun FinishGroupDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+
+                FormSpacer(16.dp)
+                FinishMomentFields(moment = moment, onChange = { moment = it }, error = momentError)
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
-                    onConfirm(filled.associate { it.batch.id to rows.getValue(it.batch.id).outcome })
+                    onConfirm(filled.associate { it.batch.id to rows.getValue(it.batch.id).outcome }, moment)
                 },
-                enabled = filled.isNotEmpty(),
+                enabled = canConfirm,
             ) {
                 Text(
                     text = if (partial) "Завершить ${filled.size} из ${items.size}" else "Завершить",
-                    color = if (filled.isNotEmpty()) DesignPalette.Accent
+                    color = if (canConfirm) DesignPalette.Accent
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -406,9 +407,12 @@ internal fun FinishEarlyDialog(
     state: BatchDetailUiState,
     remaining: Int,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
+    onConfirm: (String, FinishMoment) -> Unit,
 ) {
     var reason by rememberSaveable { mutableStateOf("") }
+    var moment by rememberSaveable(stateSaver = FinishMomentSaver) { mutableStateOf(finishMomentNow()) }
+    val momentError = finishMomentError(moment, state.startDate?.atTimeOf(state.startTime))
+    val canConfirm = reason.isNotBlank() && momentError == null
     val scrollState = rememberScrollState()
 
     AlertDialog(
@@ -448,16 +452,24 @@ internal fun FinishEarlyDialog(
 
                 FormSpacer(8.dp)
                 ReasonChips(onPick = { reason = it })
+
+                FormSpacer(16.dp)
+                FinishMomentFields(
+                    moment = moment,
+                    onChange = { moment = it },
+                    error = momentError,
+                    label = "Когда выключили инкубатор или убрали яйца",
+                )
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(reason) },
-                enabled = reason.isNotBlank(),
+                onClick = { onConfirm(reason, moment) },
+                enabled = canConfirm,
             ) {
                 Text(
                     text = "Завершить досрочно",
-                    color = if (reason.isNotBlank()) DesignPalette.Expense
+                    color = if (canConfirm) DesignPalette.Expense
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -492,18 +504,20 @@ internal fun FinishEarlyDialog(
 @Composable
 internal fun FinishOnTimeDialog(
     state: BatchDetailUiState,
-    remaining: Int,
+    candling: Int,
     onDismiss: () -> Unit,
-    onConfirm: (outcome: HatchOutcome) -> Unit,
+    onConfirm: (outcome: HatchOutcome, moment: FinishMoment) -> Unit,
 ) {
     val currency = LocalUnits.current.currency
     // Одна строка — вывод и цена вместе: так набранное переживает поворот одним
     // объектом, а в итог их превращает `outcome`.
     var row by rememberSaveable(stateSaver = FinishRowSaver) { mutableStateOf(FinishRow()) }
+    var moment by rememberSaveable(stateSaver = FinishMomentSaver) { mutableStateOf(finishMomentNow()) }
     val scrollState = rememberScrollState()
 
     val outcome = row.outcome
-    val filled = row.hatched.isNotBlank()
+    val momentError = finishMomentError(moment, state.startDate?.atTimeOf(state.startTime))
+    val filled = row.hatched.isNotBlank() && momentError == null
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -520,13 +534,13 @@ internal fun FinishOnTimeDialog(
                 FieldLabel(text = "Выведено птенцов", required = true)
                 SheetTextField(
                     value = row.hatched,
-                    onValueChange = { row = row.copy(hatched = clampCount(it, state.eggAll)) },
+                    onValueChange = { row = row.copy(hatched = clampCount(it, hatchLimit(state.eggAll, candling))) },
                     placeholder = "0",
                     numeric = true,
                 )
                 FormSpacer(6.dp)
                 Text(
-                    text = hatchedHint(state.eggAll, remaining),
+                    text = hatchedHint(eggAll = state.eggAll, candling = candling, hatched = row.hatched),
                     style = DesignType.Caption,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -543,11 +557,14 @@ internal fun FinishOnTimeDialog(
                     perHead = row.perHead,
                     hatched = outcome.hatched,
                 )
+
+                FormSpacer(16.dp)
+                FinishMomentFields(moment = moment, onChange = { moment = it }, error = momentError)
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(outcome) },
+                onClick = { onConfirm(outcome, moment) },
                 enabled = filled,
             ) {
                 Text(
@@ -636,20 +653,32 @@ private fun ChickPriceField(row: FinishRow, onChange: (FinishRow) -> Unit, label
  * [CandlingIntent.UpdateRejected] — набранные «50» при сорока яйцах становятся «40»,
  * и сразу видно, где предел.
  */
-private fun clampCount(input: String, max: Int): String {
+internal fun clampCount(input: String, max: Int): String {
     val digits = input.filter(Char::isDigit)
     if (digits.isBlank()) return ""
     val value = digits.toIntOrNull() ?: return max.toString()
     return value.coerceAtMost(max).toString()
 }
 
-/** Подпись под полем: откуда взялся предел и сколько яиц дожило до вывода. */
-private fun hatchedHint(eggAll: Int, remaining: Int): String =
-    if (remaining in 1 until eggAll) {
-        "Заложено $eggAll, после овоскопирования осталось $remaining"
-    } else {
-        "Больше $eggAll — заложенного количества — указать нельзя"
-    }
+/**
+ * Сколько птенцов можно вписать: заложенные минус выбракованные на овоскопированиях.
+ *
+ * Ручная отбраковка в предел не входит: при завершении и при правке итога она
+ * пересчитывается остатком (`finishedOnTime`, `BatchUiState.withBalancedCull`) — всё,
+ * что не вылупилось и не убрано на овоскопировании, и есть отбраковка.
+ */
+internal fun hatchLimit(eggAll: Int, candling: Int): Int = (eggAll - candling).coerceAtLeast(0)
+
+/**
+ * Подпись под полем вывода: сколько яиц после этого окажется в отбраковке. Всё, что не
+ * вылупилось, — отбраковка (овоскопирования плюс остаток), поэтому «заложено =
+ * вывелось + отбраковано» сходится всегда, и подпись показывает это до записи.
+ */
+internal fun hatchedHint(eggAll: Int, candling: Int, hatched: String): String {
+    val count = hatched.toIntOrNull() ?: return "Все невылупившиеся яйца будут отбракованы"
+    val rejected = eggAll - count.coerceIn(0, hatchLimit(eggAll, candling))
+    return "Отбраковано: $rejected из $eggAll"
+}
 
 private fun daysLeftText(daysLeft: Int?): String = when {
     daysLeft == null -> "срок неизвестен"
@@ -726,9 +755,12 @@ private fun ReasonChip(text: String, onClick: () -> Unit) {
  *
  * Пока птенцов не ввели, вторая плитка не может назвать их количество и остаётся просто
  * «За всех»: подставлять туда заложенные яйца было бы враньём.
+ *
+ * Её же показывает форма правки завершённой закладки — итог, поправленный там, должен
+ * выглядеть так же, как когда его вносили.
  */
 @Composable
-private fun ChickPriceSummary(price: Int, perHead: Boolean, hatched: Int) {
+internal fun ChickPriceSummary(price: Int, perHead: Boolean, hatched: Int) {
     val currency = LocalUnits.current.currency
     val perHeadValue = if (perHead) price else if (hatched > 0) price / hatched else 0
     val totalValue = if (perHead) price * hatched else price

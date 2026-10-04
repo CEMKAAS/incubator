@@ -25,4 +25,9 @@ data class Incubator(
     val autoTurn: Boolean,
     val autoAiring: Boolean,
     val hidden: Boolean = false,
+    /**
+     * Потребление и тариф. Закладке они достаются как значения по умолчанию: форма
+     * закладки показывает их, и человек может поправить их для неё одной.
+     */
+    val power: PowerSettings = PowerSettings(),
 )

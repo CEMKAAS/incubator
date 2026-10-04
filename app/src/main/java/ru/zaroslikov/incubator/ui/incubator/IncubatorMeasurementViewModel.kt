@@ -30,14 +30,15 @@ import ru.zaroslikov.incubator.settings.TemperatureUnit
 import ru.zaroslikov.incubator.ui.batch.AiringTimerAction
 import ru.zaroslikov.incubator.ui.batch.AiringTimerSlot
 import ru.zaroslikov.incubator.ui.batch.MeasurementForm
+import ru.zaroslikov.incubator.ui.batch.batchStartMoment
 import ru.zaroslikov.incubator.ui.batch.incubationDay
+import ru.zaroslikov.incubator.ui.batch.parseClock
 import ru.zaroslikov.incubator.ui.batch.toCelsiusOrNull
 import ru.zaroslikov.incubator.ui.batch.toCountOrNull
 import ru.zaroslikov.incubator.ui.batch.toForm
 import ru.zaroslikov.incubator.ui.batch.toMeasureOrNull
 import ru.zaroslikov.incubator.ui.clockText
 import ru.zaroslikov.incubator.ui.mvi.StatefulMviViewModel
-import ru.zaroslikov.incubator.ui.parseDate
 import ru.zaroslikov.incubator.ui.today
 import java.util.Date
 import java.util.UUID
@@ -94,6 +95,14 @@ internal data class IncubatorMeasurementState(
     val airingTimer: AiringTimerState = AiringTimerState.Idle,
 ) {
     val timerTarget: AiringTimerTarget get() = AiringTimerTarget(incubatorId)
+
+    /**
+     * С какого часа считать сутки журнала — час закладки первой идущей закладки. У
+     * закладок одного прибора он может различаться, и единственно верного ответа нет;
+     * без него утренние замеры после полуночи опускались бы под вечерние. Дёшево: пара целей.
+     */
+    val dayStart: String
+        get() = targets.map { it.batch.time.trim() }.firstOrNull { parseClock(it) != null }.orEmpty()
 
     /** Что показать под полями формы. Дёшево: три поля, без проходов. */
     val timerSlot: AiringTimerSlot
@@ -155,18 +164,12 @@ internal sealed interface IncubatorMeasurementIntent {
 internal sealed interface IncubatorMeasurementEffect
 
 /**
- * Шторка замера по инкубатору: одно показание прибора — в каждую идущую закладку.
+ * Шторка замера по инкубатору: одно показание прибора — в каждую идущую закладку. Запись кладётся
+ * копиями в строку сегодняшнего дня каждой закладки с общей меткой [Measurement.groupId]; от замеров,
+ * внесённых в закладке, копии ничем не отличаются.
  *
- * Термометр и гигрометр стоят в приборе, а не в закладке, и снятое с них показание
- * относится ко всем, кто в нём лежит. Вносить его по одной закладке значило вписывать
- * одну цифру трижды — или, что случалось, заводить одну закладку на три породы, лишь бы
- * не вписывать. Здесь запись кладётся копиями в строку сегодняшнего дня каждой идущей
- * закладки с общей меткой [Measurement.groupId]; сами копии от замеров, внесённых в
- * закладке, ничем не отличаются, и всё, что их читает, продолжает работать.
- *
- * Состояние локальное ([StatefulMviViewModel]), как у шторки закладки: половина его —
- * ввод, а потоки базы читаются внутри одного [load], который при новом открытии
- * отменяется целиком.
+ * Состояние локальное ([StatefulMviViewModel]): половина — ввод, потоки базы читаются внутри одного
+ * [load], который при новом открытии отменяется целиком.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class IncubatorMeasurementViewModel(
@@ -229,7 +232,8 @@ internal class IncubatorMeasurementViewModel(
             // Один снимок каталога и один «сегодня» на всё открытие — как в шторке
             // закладки: срок вида не меняется, пока шторка открыта, а день — тем более.
             val catalog = SpeciesCatalog(itemsRepository.getCustomSpecies().first())
-            val today = today()
+            // Момент, а не полночь: день инкубации начинается в час закладки.
+            val today = Date()
             launch { watchAiringTimer(incubatorId) }
             itemsRepository.getBatchesFor(incubatorId)
                 .map { batches -> batches.filter { it.status == BatchStatus.Active } }
@@ -281,8 +285,13 @@ internal class IncubatorMeasurementViewModel(
             // Тот же расчёт дня, что в `BatchDetailViewModel.load`: копия обязана лечь
             // в строку, которую закладка покажет как «Замеры за сегодня».
             val total = catalog.incubationDays(batch.type)
-            val day = incubationDay(parseDate(batch.data), total, today)
-            itemsRepository.getBatchValueForDay(batch.id, day)
+            val start = batchStartMoment(batch)
+            val day = incubationDay(start, total, today)
+            // Дату закладки не разобрать — какой сегодня у неё день, неизвестно, и копия
+            // в первый день была бы записью в чужое число. Такая закладка остаётся в
+            // списке без строки дня, и карточка говорит, что записи туда не будет.
+            if (start == null) flowOf(MeasurementTarget(batch, day, null, total))
+            else itemsRepository.getBatchValueForDay(batch.id, day)
                 .map { MeasurementTarget(batch, day, it, total) }
         }
         return combine(flows) { it.toList() }

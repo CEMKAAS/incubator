@@ -315,6 +315,83 @@ class MigrationTest {
     }
 
     /**
+     * Потребление и тариф ложатся пятью пустыми колонками и у инкубатора, и у закладки:
+     * числа — `NULL` («не указано»), часы ночного тарифа — пустые строки. Сверка с
+     * `19.json` проверяет, что `INTEGER` / `REAL` без умолчания и `TEXT NOT NULL` совпали
+     * с тем, что Room ждёт от `Int?`, `Double?` и `String`.
+     */
+    @Test
+    fun migrate18To19_addsPowerColumns_empty() {
+        helper.createDatabase(TEST_DB, 18).use { db ->
+            db.execSQL(
+                "INSERT INTO Incubator " +
+                    "(_id, Name, Capacity, Brand, Model, Price, Note, AutoTurn, AutoAiring, Hidden) " +
+                    "VALUES (1, 'Блиц', 72, 'Несушка', 'BI-72', 0, '', 0, 0, 0)"
+            )
+            db.execSQL(
+                "INSERT INTO Batch " +
+                    "(_id, Name, Type, Date, Egg_all, Egg_all_end, Airing, Overturn, Archive, " +
+                    "Date_end, note, incubatorId, Breed, Price, PricePerEgg, EndReason, " +
+                    "ChickPrice, ChickPricePerHead, Hidden, Time, Egg_rejected) " +
+                    "VALUES (1, 'Куры', 'Курицы', '01.08.2026', 60, 0, 'false', 'false', '0', " +
+                    "'', '', 1, '', 0, 1, '', 0, 1, 0, '08:00', 0)"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            TEST_DB,
+            19,
+            /* validateDroppedTables = */ true,
+            InventoryDatabase.MIGRATION_18_19,
+        )
+
+        for (table in listOf("Incubator", "Batch")) {
+            db.query("SELECT PowerWatts, TariffDay, TariffNight, NightStart, NightEnd FROM $table").use { cursor ->
+                assertTrue("строка $table пропала при миграции", cursor.moveToFirst())
+                assertTrue(cursor.isNull(0))
+                assertTrue(cursor.isNull(1))
+                assertTrue(cursor.isNull(2))
+                assertEquals("", cursor.getString(3))
+                assertEquals("", cursor.getString(4))
+            }
+        }
+    }
+
+    /** Час окончания закладки ложится пустой строкой: у старых закладок его не спрашивали. */
+    @Test
+    fun migrate19To20_addsTimeEnd_empty() {
+        helper.createDatabase(TEST_DB, 19).use { db ->
+            db.execSQL(
+                "INSERT INTO Incubator " +
+                    "(_id, Name, Capacity, Brand, Model, Price, Note, AutoTurn, AutoAiring, Hidden, " +
+                    "NightStart, NightEnd) " +
+                    "VALUES (1, 'Блиц', 72, 'Несушка', 'BI-72', 0, '', 0, 0, 0, '', '')"
+            )
+            db.execSQL(
+                "INSERT INTO Batch " +
+                    "(_id, Name, Type, Date, Egg_all, Egg_all_end, Airing, Overturn, Archive, " +
+                    "Date_end, note, incubatorId, Breed, Price, PricePerEgg, EndReason, " +
+                    "ChickPrice, ChickPricePerHead, Hidden, Time, Egg_rejected, NightStart, NightEnd) " +
+                    "VALUES (1, 'Куры', 'Курицы', '01.08.2026', 60, 50, 'false', 'false', '1', " +
+                    "'22.08.2026', '', 1, '', 0, 1, '', 0, 1, 0, '08:00', 10, '', '')"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            TEST_DB,
+            20,
+            /* validateDroppedTables = */ true,
+            InventoryDatabase.MIGRATION_19_20,
+        )
+
+        db.query("SELECT Date_end, TimeEnd FROM Batch").use { cursor ->
+            assertTrue("закладка пропала при миграции", cursor.moveToFirst())
+            assertEquals("22.08.2026", cursor.getString(0))
+            assertEquals("", cursor.getString(1))
+        }
+    }
+
+    /**
      * `DATABASE_VERSION` в `DatabaseTransfer` — ручной дубликат `@Database(version)`, и
      * связи между двумя числами нет никакой. Забыть поднять первое значит начать
      * отвергать при импорте собственный экспорт этой же сборки — и обнаружится это у

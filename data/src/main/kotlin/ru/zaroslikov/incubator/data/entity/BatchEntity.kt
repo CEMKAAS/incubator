@@ -76,4 +76,20 @@ data class BatchEntity(
     val time: String = "",
     @ColumnInfo(name = "Egg_rejected")
     val eggRejected: Int = 0,
+    // Добавлены в девятнадцатой версии схемы, см. MIGRATION_18_19 — потребление и тариф
+    // закладки. Пустые берутся из инкубатора.
+    @ColumnInfo(name = "PowerWatts")
+    val powerWatts: Int? = null,
+    @ColumnInfo(name = "TariffDay")
+    val tariffDay: Double? = null,
+    @ColumnInfo(name = "TariffNight")
+    val tariffNight: Double? = null,
+    @ColumnInfo(name = "NightStart")
+    val nightStart: String = "",
+    @ColumnInfo(name = "NightEnd")
+    val nightEnd: String = "",
+    // Добавлена в двадцатой версии схемы, см. MIGRATION_19_20: час, когда закладку
+    // закончили, — конец счёта за свет.
+    @ColumnInfo(name = "TimeEnd")
+    val timeEnd: String = "",
 )

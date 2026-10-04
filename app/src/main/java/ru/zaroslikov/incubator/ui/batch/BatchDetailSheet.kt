@@ -37,8 +37,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -59,6 +62,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -66,6 +70,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -85,8 +90,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import ru.zaroslikov.incubator.ads.AdBanner
+import ru.zaroslikov.incubator.ads.rememberBannerAdHost
 import ru.zaroslikov.incubator.analytics.Analytics
 import ru.zaroslikov.incubator.analytics.Events
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import ru.zaroslikov.incubator.R
 import ru.zaroslikov.incubator.domain.model.Candling
@@ -116,11 +124,14 @@ import ru.zaroslikov.incubator.design.components.tileWeight
 import ru.zaroslikov.incubator.design.components.accentButtonColors
 import ru.zaroslikov.incubator.design.components.clearFocusOnTap
 import ru.zaroslikov.incubator.ui.incubator.ProgressRing
+import ru.zaroslikov.incubator.ui.incubator.formatMoney
+import kotlin.math.roundToInt
+import ru.zaroslikov.incubator.ui.incubator.plural
+import ru.zaroslikov.incubator.ui.components.formatKwh
 import ru.zaroslikov.incubator.ui.incubator.progressRingColor
 import ru.zaroslikov.incubator.ui.plusDays
 import ru.zaroslikov.incubator.ui.clockText
 import ru.zaroslikov.incubator.ui.shortDate
-import ru.zaroslikov.incubator.ui.start.speciesEmoji
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
 import java.util.Date
@@ -169,51 +180,30 @@ private val sheetTabs = BatchSheetTab.entries.map { SlidingTab(it.title, it.icon
 /**
  * Шторка одной закладки — макет
  * [14:4893](https://www.figma.com/design/B48q96fOq7Nsy569AXrbWY/Untitled?node-id=14-4893).
+ * Маршрута в навигации нет: идентификатор приходит параметром и уезжает в [BatchDetailIntent.Load].
  *
- * Шторка, а не экран: у макета скруглённый верх, «ручка» и крестик — значит она
- * появляется поверх списка закладок инкубатора. Маршрута в навигации у неё нет,
- * идентификатор приходит параметром и уезжает в [BatchDetailIntent.Load], как
- * и у [AddBatchSheet].
- *
- * Содержимое разложено по двум страницам, которые листаются свайпом (и переключателем
- * над ними): «Обзор» — сводка, замеры за сегодня и режим на завтра; «Расписание» —
- * список дней карточками нового дизайна.
+ * Две страницы, листаются свайпом и переключателем: «Обзор» (сводка, замеры за сегодня,
+ * режим на завтра) и «Расписание» (дни карточками).
  *
  * Отступления от макета, все намеренные:
- * — вкладок макет не рисует вовсе: расписание в нём отдельный экран. Но день правят
- *   ровно тогда, когда смотрят на замеры, и свайп между двумя страницами дешевле,
- *   чем уход со шторки и возврат. Отдельного экрана расписания в приложении больше
- *   нет вовсе — эта вкладка и есть единственное расписание;
- * — кнопка «Аналитика» открывает [BatchAnalyticsSheet] поверх этой шторки, а без
- *   единого замера погашена: считать за день было бы нечего;
- * — внизу «Обзора» — «Завершить инкубацию» ([FinishIncubationButton]), которой макет
- *   не рисует: закладку надо чем-то заканчивать, а другого пути к этому в приложении
- *   больше нет. Цвет кнопки и есть предупреждение — красная, пока срок не вышел;
- * — «Сохранено» из макета внизу нет вовсе: замер сохраняется сразу по «Записать
- *   замер», и вечно неактивная кнопка читалась бы как поломка. Закрывают шторку
- *   крестиком в шапке или свайпом вниз — как и любую другую;
- * — в день овоскопирования между сводкой и замерами встаёт [TodayCandlingCard]:
- *   овоскопирование выпадает на два-три дня из тридцати, и в такой день оно и есть
- *   то, ради чего закладку открыли. Само овоскопирование — [CandlingSheet], такая же
- *   шторка поверх этой, как и аналитика;
- * — четыре плитки-справки макета собраны в полосу внутри сводки — см. [SummaryCard].
+ * — вкладки: день правят ровно тогда, когда смотрят на замеры; отдельного экрана
+ *   расписания в приложении нет, эта вкладка и есть расписание;
+ * — «Аналитика» открывает [BatchAnalyticsSheet]; без замеров погашена;
+ * — «Завершить инкубацию» ([FinishIncubationButton]) внизу «Обзора»: другого пути
+ *   закончить закладку нет; красная, пока срок не вышел;
+ * — «Сохранено» из макета нет: замер сохраняется сразу, вечно неактивная кнопка читалась бы как поломка;
+ * — в день овоскопирования над замерами стоит [TodayCandlingCard]; само овоскопирование —
+ *   [CandlingSheet], шторка поверх этой;
+ * — четыре плитки-справки собраны в полосу внутри сводки ([SummaryCard]).
  *
- * [readOnly] — закладка лежит в инкубаторе, убранном в архив. Шторка тогда показывает
- * ровно то же самое, но без единого способа что-либо записать: пропадают форма замера,
- * правка и удаление записанного, кнопки овоскопирования, редактор дня и «Завершить
- * инкубацию». Всё, что остаётся, — сводка, плитки, отклонения, журнал замеров и
- * аналитика, то есть чтение. Не «погашено», а убрано: неактивная форма на весь экран
- * читается как поломка, а объяснение стоит один раз плашкой над списком закладок.
+ * [readOnly] — закладка лежит в инкубаторе, убранном в архив: пропадают форма замера,
+ * правка и удаление записанного, овоскопирование, редактор дня и «Завершить инкубацию»;
+ * остаётся чтение. Убрано, а не погашено: неактивная форма на весь экран читается как поломка.
+ * Тот же просмотр у **завершённой** закладки откуда бы её ни открыли, поэтому запрет
+ * считается внутри ([readOnly] `||` [BatchDetailUiState.finished]).
  *
- * Тот же просмотр — и у **завершённой** закладки, откуда бы её ни открыли: у неё есть
- * итог и нет продолжения. Отдельного экрана для таких закладок больше нет — тап по
- * карточке «Завершено» и «Не завершено» открывает эту же шторку, — и запрет поэтому
- * считается внутри ([readOnly] `||` [BatchDetailUiState.finished]), а не приходит
- * параметром: список закладок инкубатора не единственный вход сюда, а статус закладки
- * шторка и так читает из базы сама.
- *
- * @param draft черновик формы замера: набранные показания переживают сворачивание
- * шторки, но не крестик и не уход с экрана. См. [SheetDraft].
+ * @param draft черновик формы замера: набранное переживает сворачивание шторки, но не крестик
+ * и не уход с экрана. См. [SheetDraft].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -223,10 +213,12 @@ internal fun BatchDetailSheet(
     onDismiss: () -> Unit,
     readOnly: Boolean = false,
     /**
-     * Закладка доведена до срока с птенцами и записана — экран под шторкой показывает
-     * поздравление. Прерванная и вывод «ноль» сюда не приходят: шторка просто закрывается.
+     * Закладка завершена и записана — экран под шторкой показывает карточку итога:
+     * поздравление, если она доведена до срока с птенцами, или «Инкубация прервана»,
+     * если её остановили досрочно. Вывод «ноль» сюда не приходит: шторка просто
+     * закрывается.
      */
-    onHatched: (HatchSummary) -> Unit = {},
+    onSummary: (HatchSummary) -> Unit = {},
     viewModel: BatchDetailViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -288,12 +280,14 @@ internal fun BatchDetailSheet(
     // больше нет, а список под шторкой перечитается сам, он на потоке.
     CollectEffects(viewModel) { effect ->
         when (effect) {
-            is BatchDetailEffect.Finished -> {
+            // Эффект, оставшийся в канале от закладки, чью шторку смахнули во время записи,
+            // этой шторке не принадлежит: закрыть её с поздравлением за чужую было бы ложью.
+            is BatchDetailEffect.Finished -> if (effect.batchId == batchId) {
                 showFinish = false
                 close()
-                // После закрытия: поздравление — диалог экрана, а не шторки, и он
+                // После закрытия: карточка итога — диалог экрана, а не шторки, и он
                 // встаёт над списком, где завершённую карточку уже видно.
-                effect.hatched?.let(onHatched)
+                effect.summary?.let(onSummary)
             }
         }
     }
@@ -383,6 +377,9 @@ internal fun BatchDetailSheet(
                         readOnly = viewOnly,
                         timer = uiState.timerSlot,
                         onTimerAction = { send(BatchDetailIntent.AiringTimer(it)) },
+                        onDayNoteChange = { dayId, note ->
+                            send(BatchDetailIntent.SaveDayNote(dayId, note))
+                        },
                     )
 
                     BatchSheetTab.Schedule -> SchedulePage(
@@ -445,8 +442,8 @@ internal fun BatchDetailSheet(
             state = state,
             rejected = uiState.rejectedTotal,
             onDismiss = { showFinish = false },
-            onFinish = { outcome -> send(BatchDetailIntent.Finish(outcome)) },
-            onFinishEarly = { reason -> send(BatchDetailIntent.FinishEarly(reason)) },
+            onFinish = { outcome, moment -> send(BatchDetailIntent.Finish(outcome, moment)) },
+            onFinishEarly = { reason, moment -> send(BatchDetailIntent.FinishEarly(reason, moment)) },
         )
     }
 
@@ -492,6 +489,7 @@ private fun OverviewPage(
     readOnly: Boolean,
     timer: AiringTimerSlot,
     onTimerAction: (AiringTimerAction) -> Unit,
+    onDayNoteChange: (dayId: Long, note: String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -500,6 +498,12 @@ private fun OverviewPage(
             .padding(horizontal = SheetPadding)
             .padding(top = 16.dp, bottom = 32.dp)
     ) {
+        // Архивная закладка выбыла из всех итогов инкубатора, а по самой шторке этого
+        // не видно: те же цифры, что у любой другой. Сказать об этом надо до них.
+        if (state.hidden) {
+            ArchivedBatchNotice()
+            FormSpacer(16.dp)
+        }
         SummaryCard(state, rejected = rejected)
 
         // Овоскопирование выпадает на два-три дня из тридцати, и в такой день оно —
@@ -561,6 +565,8 @@ private fun OverviewPage(
                 readOnly = readOnly,
                 timer = timer,
                 onTimerAction = onTimerAction,
+                onDayNoteChange = onDayNoteChange,
+                dayStart = state.startTime,
             )
         }
 
@@ -576,6 +582,11 @@ private fun OverviewPage(
                 autoAiring = state.autoAiring,
             )
         }
+
+        // Финансовая справка — во что закладка обходится: яйца и свет. Внизу, под
+        // режимом на завтра: её смотрят изредка, а замеры и план — каждый день.
+        FormSpacer(16.dp)
+        BatchMoneyCard(state)
 
         // Завершение — у завершённой закладки завершать нечего, и кнопки нет.
         // В архивном инкубаторе её нет и у идущей: завершение записывает итог,
@@ -621,6 +632,168 @@ private fun EndReasonCard(reason: String) {
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
+    }
+}
+
+/**
+ * «В архиве» — над сводкой архивной закладки. Архив убирает закладку не только из
+ * списка, но и из «Статистики», «Финансов», «Аналитики» и цифр в шапке инкубатора, как
+ * будто её не было, — и человек, открывший её посмотреть итог, должен знать, что этот
+ * итог больше никуда не входит. Рамка и иконка — как у `ReadOnlyNotice` экрана
+ * инкубатора: та же коробка архива, тот же спокойный серый.
+ */
+@Composable
+private fun ArchivedBatchNotice() {
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .border(0.8.dp, DesignPalette.CardBorder, shape)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            painter = painterResource(id = R.drawable.baseline_archive_24),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "Закладка в архиве и не учитывается ни в статистике, ни в финансах — " +
+                "как будто её не было. Чтобы она снова вошла в итоги, выберите " +
+                "«Вернуть в список» в меню её карточки.",
+            style = DesignType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * «Финансы» — небольшая справка о расходе закладки: сколько яиц куплено и во что они
+ * обошлись, и сколько электричества сожжено к этому часу.
+ *
+ * Числа те же, что в разборе закладки на вкладке «Финансы» инкубатора: яйца —
+ * [BatchDetailUiState.eggsCost] по цене, как её ввели, свет — `electricityOfFinished`, то
+ * есть с общими часами, поделёнными с соседками. Пустая цена — «не указана», а не
+ * «0 ₽»: ноль здесь читался бы как «яйца достались даром». Итога-прибыли нет: у идущей
+ * закладки его ещё нет, а у завершённой он стоит в «Финансах» рядом с доходом.
+ */
+@Composable
+private fun BatchMoneyCard(state: BatchDetailUiState) {
+    val currency = LocalUnits.current.currency
+    val eggsPriced = state.price > 0
+    val electricity = state.electricity
+    SheetCard(radius = CardRadius) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                text = "Финансы",
+                style = DesignType.CardHeading,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(12.dp))
+            BatchMoneyLine(
+                label = "Куплено яиц",
+                value = if (eggsPriced) formatMoney(state.eggsCost, currency) else "цена не указана",
+                hint = plural(state.eggAll, "яйцо", "яйца", "яиц") + when {
+                    !eggsPriced -> ""
+                    state.pricePerEgg -> " по ${formatMoney(state.price, currency)}"
+                    else -> " за всё"
+                },
+                emphasised = eggsPriced,
+            )
+            Spacer(Modifier.height(8.dp))
+            BatchMoneyLine(
+                label = "Электроэнергия",
+                value = when {
+                    !state.electricityLoaded -> "—"
+                    electricity != null -> formatMoney(electricity.roundedRubles, currency)
+                    else -> "не указана"
+                },
+                // Часы работы — первыми: из них и тарифа складывается сумма, и их видно,
+                // даже когда посчитать рубли не из чего.
+                hint = if (!state.electricityLoaded) null else buildList {
+                    state.runHours?.let { hours ->
+                        add(plural(hours, "час", "часа", "часов") + if (state.finished) " работы" else " прошло")
+                    }
+                    if (electricity == null) {
+                        add("укажите потребление и тариф в инкубаторе или закладке")
+                    } else {
+                        add("${formatKwh(electricity.kwh)} кВт·ч")
+                        if (electricity.shared) add("общие часы поделены с соседними закладками")
+                    }
+                }.joinToString(" · "),
+                emphasised = electricity != null,
+            )
+            // Двухзонный тариф — сумма по каждому, с отступом под общей, как части
+            // «Расхода» в «Финансах». Дневная — остаток от округлённых, а не округлённая
+            // сама: тогда две строки складываются ровно в ту, что над ними.
+            if (electricity != null && electricity.twoTariffs) {
+                val night = electricity.nightRubles.roundToInt()
+                // Часы — тоже остатком: ночные округлены, дневные — всё остальное время,
+                // так что вместе они дают ровно «N часов» строкой выше.
+                val nightHours = electricity.nightHours.roundToInt()
+                val dayHours = (state.runHours ?: electricity.hours.toInt()) - nightHours
+                val window = state.nightWindow
+                fun tariffHint(range: String?, hours: Int, kwh: Double) = listOfNotNull(
+                    range,
+                    plural(hours.coerceAtLeast(0), "час", "часа", "часов"),
+                    "${formatKwh(kwh)} кВт·ч",
+                ).joinToString(" · ")
+                Column(Modifier.padding(start = 12.dp)) {
+                    Spacer(Modifier.height(8.dp))
+                    BatchMoneyLine(
+                        label = "Дневной тариф",
+                        value = formatMoney(electricity.roundedRubles - night, currency),
+                        hint = tariffHint(
+                            window?.let { (start, end) -> "$end–$start" },
+                            dayHours,
+                            electricity.dayKwh,
+                        ),
+                        emphasised = true,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    BatchMoneyLine(
+                        label = "Ночной тариф",
+                        value = formatMoney(night, currency),
+                        hint = tariffHint(
+                            window?.let { (start, end) -> "$start–$end" },
+                            nightHours,
+                            electricity.nightKwh,
+                        ),
+                        emphasised = true,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Строка справки: подпись с пояснением слева, сумма справа — как в разборе «Финансов». */
+@Composable
+private fun BatchMoneyLine(label: String, value: String, hint: String?, emphasised: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = DesignType.Body,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (hint != null) {
+                Text(
+                    text = hint,
+                    style = DesignType.Micro,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = value,
+            style = DesignType.MoneyRow,
+            color = if (emphasised) DesignPalette.Expense else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -996,14 +1169,6 @@ private fun SchedulePage(
                     style = DesignType.CardHeading,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Text(
-                    // Подпись обещает ровно то, что день умеет: в архивном инкубаторе
-                    // карточка раскрывается, но правит в ней нечего.
-                    text = if (readOnly) "Нажмите на день, чтобы посмотреть замеры"
-                    else "Нажмите на день, чтобы изменить режим",
-                    style = DesignType.Caption,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
 
@@ -1169,11 +1334,7 @@ private fun ScheduleDayCard(
                     }
                     if (plan.note.isNotBlank()) {
                         Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = plan.note,
-                            style = DesignType.Caption,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        DayNotePlate(note = plan.note.trim(), key = plan.id)
                     }
                 }
             }
@@ -1212,6 +1373,7 @@ private fun ScheduleDayCard(
                         readOnly = readOnly,
                         autoTurn = state.autoTurn,
                         autoAiring = state.autoAiring,
+                        dayStart = state.startTime,
                     )
                     if (!readOnly) {
                         if (measurements.isNotEmpty() || canRecord) {
@@ -1262,15 +1424,18 @@ private fun DayMeasurements(
     readOnly: Boolean = false,
     autoTurn: Boolean = false,
     autoAiring: Boolean = false,
+    /** Час закладки «ЧЧ:ММ» — начало суток инкубации; пусто — полночь. */
+    dayStart: String = "",
 ) {
     // Свёрнуто — только последние: за день замеров набирается сколько угодно, а карточка
     // дня стоит в списке из тридцати таких же. Ключ по дню — свой разворот у каждого.
     var historyExpanded by remember(plan.id) { mutableStateOf(false) }
+    val ordered = remember(measurements, dayStart) { measurements.newestFirst(dayStart) }
 
     // Правку начинают из строки, но открыть замер можно и из хвоста списка: обводка
     // редактируемого не должна остаться за границей свёрнутой истории.
     val editingHidden = form.editingId != 0L &&
-        measurements.indexOfFirst { it.id == form.editingId } >= VisibleMeasurements
+        ordered.indexOfFirst { it.id == form.editingId } >= VisibleMeasurements
     LaunchedEffect(form.editingId, editingHidden) {
         if (editingHidden) historyExpanded = true
     }
@@ -1320,8 +1485,8 @@ private fun DayMeasurements(
     }
 
     Column(Modifier.animateContentSize()) {
-        val shown =
-            if (historyExpanded) measurements else measurements.take(VisibleMeasurements)
+        // Свежий сверху, считая от часа закладки ([newestFirst]); свёрнуто — последние.
+        val shown = if (historyExpanded) ordered else ordered.take(VisibleMeasurements)
         shown.forEach { measurement ->
             Spacer(Modifier.height(12.dp))
             MeasurementRow(
@@ -1452,7 +1617,10 @@ private fun dayCaption(day: Int, state: BatchDetailUiState, measurements: Int): 
         day < state.day -> "прошёл"
         else -> "через ${day - state.day} дн."
     }
+    // День инкубации начинается в час закладки, так что утром «сегодня» ещё может стоять
+    // на вчерашнем числе — у текущего дня час начала сказан, чтобы это не читалось ошибкой.
     val date = state.startDate?.plusDays(day - 1)?.let { shortDate(it) }
+        ?.let { if (day == state.day && !state.finished && state.startTime.isNotEmpty()) "$it с ${state.startTime}" else it }
     return listOfNotNull(
         date,
         status,
@@ -1691,7 +1859,7 @@ private fun SummaryCard(state: BatchDetailUiState, rejected: Int) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ProgressRing(
                     fraction = incubationFraction(state),
-                    emoji = speciesEmoji(state.type),
+                    species = state.type,
                     diameter = 52.dp,
                     // Тот же цвет, что у кольца на карточке, с которой шторку открыли:
                     // одно и то же кольцо про одну и ту же закладку.
@@ -1887,14 +2055,18 @@ private fun RowScope.FigureDivider() {
  * Считается от [BatchDetailUiState.finishesAt] — того же момента, в который экран
  * инкубатора предлагает записать итог (`batchFinishMoment`: день вывода в час
  * закладки), так что «срок вышел» и «Инкубация завершена» наступают одновременно.
- * Пока до него сутки и больше — целые дни (полные, без округления вверх: за 25 часов
- * «остался 1 день», а не два, иначе «2 дня» сменялись бы «23 часами» скачком); когда
- * меньше суток — часы, и начатый час считается за целый: за пять минут до срока
- * остался ещё час, а не ноль. Часы только в последний день, потому что раньше они
- * ничего не говорят — «363 часа» никто не переводит в уме, а «15 дней» и так
- * читается; в последний же день «1 день» слишком грубо, когда птенцы наклёвываются
- * к вечеру. У завершённой закладки хвоста нет: ей ждать нечего, а «срок вышел» под
- * «Не завершено» читалось бы как ещё одно замечание.
+ *
+ * **Дни остатка считаются теми же календарными днями, что и «День N/M»** — это
+ * `M − N`, а не часы до срока, делённые на сутки. Номер дня идёт от полуночи, срок —
+ * от часа закладки, и по часам выходило «День 21/21 · остался 1 день»: утром
+ * последнего дня до вывода в 10:00 завтрашнего ещё больше суток, а строка при этом
+ * говорит, что день последний. Две половины одной строки обязаны считать одинаково.
+ * В последний день (`N == M`) — часы до самого момента, и начатый час считается за
+ * целый: за пять минут до срока остался ещё час, а не ноль. Часов в последний день
+ * может быть и за двадцать (до часа закладки следующего утра), но «1 день» там
+ * слишком грубо, когда птенцы наклёвываются к вечеру, а «363 часа» раньше никто не
+ * переводит в уме — поэтому часы только в нём. У завершённой закладки хвоста нет: ей
+ * ждать нечего, а «срок вышел» под «Не завершено» читалось бы как ещё одно замечание.
  *
  * [now] — параметром, а не `Date()` внутри: строка должна поддаваться проверке на
  * заданный момент, а не на тот, в который запущен тест.
@@ -1905,7 +2077,15 @@ internal fun dayLine(state: BatchDetailUiState, now: Date = Date()): String {
     else "День ${state.day}"
     if (state.finished) return day
     val finishesAt = state.finishesAt ?: return day
-    return "$day · ${timeLeftPhrase(hoursLeft(finishesAt, now))}"
+    val hours = hoursLeft(finishesAt, now)
+    val daysLeft = state.daysLeft
+    val phrase = when {
+        hours <= 0 -> "срок вышел"
+        daysLeft == null -> timeLeftPhrase(hours)
+        daysLeft > 0 -> daysLeftPhrase(daysLeft.toLong())
+        else -> hoursLeftPhrase(hours)
+    }
+    return "$day · $phrase"
 }
 
 /**
@@ -1952,7 +2132,7 @@ internal fun hoursWord(hours: Long): String = when {
 // --- Замеры за сегодня ---------------------------------------------------------------------
 
 /**
- * Карточка «Замеры за сегодня». Общая на две шторки — закладки (здесь) и инкубатора
+ * Блок «Замеры за сегодня». Общий на две шторки — закладки (здесь) и инкубатора
  * (`IncubatorMeasurementSheet`), поэтому спрашивает не состояние закладки, а ровно то,
  * что рисует: план дня для целей и норм, флаги автоматики, можно ли записывать, журнал
  * и форму. Второй экземпляр той же карточки разошёлся бы с первым при первой правке.
@@ -1982,115 +2162,67 @@ internal fun MeasurementsCard(
     // задним числом, и таймер там не о чем. `null` — карточки нет. См. [AiringTimerCard].
     timer: AiringTimerSlot? = null,
     onTimerAction: (AiringTimerAction) -> Unit = {},
+    // Примечание ко дню — заметка строки плана [plan], правится прямо здесь и сохраняется
+    // сама. Только у закладки: у шторки инкубатора своей строки плана нет, там [plan] —
+    // среднее по закладкам. `null` — карточки нет. См. [DayNoteCard].
+    onDayNoteChange: ((dayId: Long, note: String) -> Unit)? = null,
+    // Час закладки «ЧЧ:ММ» — с него начинаются сутки инкубации, и от него история
+    // считает, какой замер свежее. Пусто — полночь.
+    dayStart: String = "",
 ) {
     val unit = LocalUnits.current.temperature
-    val latest = measurements.firstOrNull()
+    // Плитки и шкалы — среднее за день, у каждой величины по своим замерам: замер, где
+    // записали одну влажность, не должен ни стирать температуру, ни тянуть её среднее к
+    // нулю. Та же арифметика, что «Средняя t» в аналитике дня, — цифры совпадают.
+    val dayTemp = remember(measurements) {
+        measurements.mapNotNull { it.temp }.takeIf { it.isNotEmpty() }?.average()
+    }
+    val dayDamp = remember(measurements) {
+        measurements.mapNotNull { it.damp }.takeIf { it.isNotEmpty() }?.average()
+    }
     val tempTarget = plan?.temp
     val dampTarget = plan?.damp
     // Свёрнуто — только последние замеры: за день их набирается сколько угодно, и список
     // иначе уводит вниз и форму записи, и «Завтра».
     var historyExpanded by remember(historyKey) { mutableStateOf(false) }
+    // Свежий замер сверху — но «свежий» считается от часа закладки, а не от полуночи:
+    // сутки инкубации переходят через ночь, и утренний замер в них позже вечернего.
+    // База отдаёт их по тексту времени, что на этом стыке и ломалось. См. [newestFirst].
+    val ordered = remember(measurements, dayStart) { measurements.newestFirst(dayStart) }
 
     // Правку начинают из строки, но список под ней можно свернуть, а замер — открыть из
     // хвоста: обводка редактируемого не должна оставаться за границей свёрнутого списка.
     // Разворачиваем один раз на замер, поэтому свернуть вручную по-прежнему можно.
     val editingHidden = form.editingId != 0L &&
-        measurements.indexOfFirst { it.id == form.editingId } >= VisibleMeasurements
+        ordered.indexOfFirst { it.id == form.editingId } >= VisibleMeasurements
     LaunchedEffect(form.editingId, editingHidden) {
         if (editingHidden) historyExpanded = true
     }
-    val tempDelta = deltaOf(latest?.temp, tempTarget)
-    val dampDelta = deltaOf(latest?.damp, dampTarget)
+    val adHost = rememberBannerAdHost()
+    val tempDelta = deltaOf(dayTemp, tempTarget)
+    val dampDelta = deltaOf(dayDamp, dampTarget)
 
-    SheetCard(radius = CardRadius) {
-        Column(Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    // «Сегодня» здесь буквально: у завершённой закладки этой карточки
-                    // нет вовсе — см. `OverviewPage`.
-                    text = "Замеры за сегодня",
-                    style = DesignType.CardHeading.copy(hyphens = Hyphens.Auto),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    // Вес — заголовку, а не пустоте между ним и чипом. С `SpaceBetween`
-                    // оба меряются по своему тексту, и на крупном системном кегле они
-                    // просто встречались посередине: «Аналитика» ломалась внутри чипа
-                    // на две строки и вплотную упиралась в заголовок. Взвешенный
-                    // заголовок уступает место первым — чип берёт своё и остаётся цел.
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(8.dp))
-                AnalyticsChip(enabled = measurements.isNotEmpty(), onClick = onOpenAnalytics)
+    // Без белой карточки вокруг: блок стоит прямо на фоне шторки, а карточки — только
+    // его плитки, белые с обводкой, как остальные карточки шторки.
+    //
+    // Три части в порядке дела: сперва записать замер — ради этого шторку и открывают,
+    // поэтому форма сразу под основной информацией; потом что за день получилось; потом
+    // сами записи.
+    Column {
+        // Формы записи в архивном инкубаторе нет вовсе — не «погашена»: поле, в
+        // которое можно печатать, но нельзя сохранить, читается как поломка.
+        if (!readOnly) {
+            // «Изм.» нажимают в истории, внизу блока, а замер загружается сюда, наверх:
+            // без прокрутки правка начиналась бы за краем экрана, и казалось бы, что
+            // нажатие ничего не сделало. Ключ — id замера, так что второй «Изм.» на
+            // другой строке прокручивает снова.
+            val formRequester = remember { BringIntoViewRequester() }
+            LaunchedEffect(form.editingId) {
+                if (form.editingId != 0L) formRequester.bringIntoView()
             }
-
-            Spacer(Modifier.height(12.dp))
-            // [TileRow]: у влажности подпись цели короче температурной, а «нет замеров»
-            // и «−0.4° · заметное отклонение» переносятся по-разному — без выравнивания
-            // одна плитка стояла бы ниже другой.
-            TileRow {
-                MeasureTile(
-                    label = "Температура",
-                    value = latest?.temp?.let { "${it.formatTemp(unit)}°" },
-                    target = tempTarget?.let { "цель ${it.formatTemp(unit)}°" },
-                    delta = tempDelta?.let(unit::scale),
-                    unit = "°",
-                    decimals = 1,
-                    minor = unit.scale(0.2),
-                    major = unit.scale(0.5),
-                    modifier = tileWeight(),
-                )
-                MeasureTile(
-                    label = "Влажность",
-                    value = latest?.damp?.let { "${it.formatDamp()}%" },
-                    target = dampTarget?.let { "цель ${it.formatDamp()}%" },
-                    delta = dampDelta,
-                    unit = "%",
-                    decimals = 0,
-                    minor = 3.0,
-                    major = 7.0,
-                    modifier = tileWeight(),
-                )
-            }
-
-            if (tempDelta != null) {
+            Column(Modifier.bringIntoViewRequester(formRequester)) {
+                MeasurementsHeading("Внести замер")
                 Spacer(Modifier.height(12.dp))
-                DeviationBar(
-                    caption = "ТЕМПЕРАТУРА",
-                    delta = unit.scale(tempDelta),
-                    scale = unit.scale(TEMP_SCALE),
-                    unit = "°",
-                    decimals = 1,
-                    severity = severityOf(tempDelta, 0.2, 0.5),
-                )
-            }
-            if (dampDelta != null) {
-                Spacer(Modifier.height(12.dp))
-                DeviationBar(
-                    caption = "ВЛАЖНОСТЬ",
-                    delta = dampDelta,
-                    scale = DAMP_SCALE,
-                    unit = "%",
-                    decimals = 0,
-                    severity = severityOf(dampDelta, 3.0, 7.0),
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-            ActionCounters(
-                measurements = measurements,
-                plan = plan,
-                autoTurn = autoTurn,
-                autoAiring = autoAiring,
-            )
-
-            // Формы записи в архивном инкубаторе нет вовсе — не «погашена»: поле, в
-            // которое можно печатать, но нельзя сохранить, читается как поломка.
-            if (!readOnly) {
-                Spacer(Modifier.height(16.dp))
                 MeasurementEntry(
                     form = form,
                     canRecord = canRecord,
@@ -2103,47 +2235,259 @@ internal fun MeasurementsCard(
                     onTimerAction = onTimerAction,
                 )
             }
+            Spacer(Modifier.height(24.dp))
+        }
 
-            if (measurements.isEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = emptyText,
-                    style = DesignType.Body,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            } else {
-                Column(Modifier.animateContentSize()) {
-                    val shown =
-                        if (historyExpanded) measurements
-                        else measurements.take(VisibleMeasurements)
-                    shown.forEach { measurement ->
-                        Spacer(Modifier.height(12.dp))
-                        // Без обработчиков строка становится просто карточкой замера —
-                        // ровно то, что нужно архивному инкубатору: показания видно,
-                        // «Изм.» и крестика у них нет.
-                        MeasurementRow(
-                            measurement = measurement,
-                            tempTarget = tempTarget,
-                            dampTarget = dampTarget,
-                            onEdit = if (readOnly) null else ({ onEdit(measurement) }),
-                            onDelete = if (readOnly) null else ({ onDelete(measurement) }),
-                            selected = form.editingId == measurement.id,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                // «Сегодня» здесь буквально: у завершённой закладки этой карточки
+                // нет вовсе — см. `OverviewPage`.
+                text = "Замеры за сегодня",
+                style = DesignType.CardHeading.copy(hyphens = Hyphens.Auto),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                // Вес — заголовку, а не пустоте между ним и чипом. С `SpaceBetween`
+                // оба меряются по своему тексту, и на крупном системном кегле они
+                // просто встречались посередине: «Аналитика» ломалась внутри чипа
+                // на две строки и вплотную упиралась в заголовок. Взвешенный
+                // заголовок уступает место первым — чип берёт своё и остаётся цел.
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            AnalyticsChip(enabled = measurements.isNotEmpty(), onClick = onOpenAnalytics)
+        }
+
+        Spacer(Modifier.height(12.dp))
+        // [TileRow]: у влажности подпись цели короче температурной, а «нет замеров»
+        // и «−0.4° · заметное отклонение» переносятся по-разному — без выравнивания
+        // одна плитка стояла бы ниже другой.
+        TileRow {
+            MeasureTile(
+                label = "Средняя температура",
+                value = dayTemp?.let { "${it.formatTemp(unit)}°" },
+                target = tempTarget?.let { "цель ${it.formatTemp(unit)}°" },
+                delta = tempDelta?.let(unit::scale),
+                unit = "°",
+                decimals = 1,
+                minor = unit.scale(0.2),
+                major = unit.scale(0.5),
+                modifier = tileWeight(),
+            )
+            MeasureTile(
+                label = "Средняя влажность",
+                value = dayDamp?.let { "${it.formatDamp()}%" },
+                target = dampTarget?.let { "цель ${it.formatDamp()}%" },
+                delta = dampDelta,
+                unit = "%",
+                decimals = 0,
+                minor = 3.0,
+                major = 7.0,
+                modifier = tileWeight(),
+            )
+        }
+
+        // Обе шкалы — в одной карточке, белой с обводкой, как плитки над ней: на голом
+        // фоне шторки дорожки висели в воздухе и не читались как один блок.
+        if (tempDelta != null || dampDelta != null) {
+            Spacer(Modifier.height(12.dp))
+            Surface(
+                shape = RoundedCornerShape(TileRadius),
+                color = DesignPalette.Surface,
+                border = BorderStroke(CardBorderWidth, DesignPalette.CardBorder),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (tempDelta != null) {
+                        DeviationBar(
+                            caption = "ТЕМПЕРАТУРА",
+                            delta = unit.scale(tempDelta),
+                            scale = unit.scale(TEMP_SCALE),
+                            unit = "°",
+                            decimals = 1,
+                            severity = severityOf(tempDelta, 0.2, 0.5),
+                        )
+                    }
+                    if (dampDelta != null) {
+                        DeviationBar(
+                            caption = "ВЛАЖНОСТЬ",
+                            delta = dampDelta,
+                            scale = DAMP_SCALE,
+                            unit = "%",
+                            decimals = 0,
+                            severity = severityOf(dampDelta, 3.0, 7.0),
                         )
                     }
                 }
-                if (measurements.size > VisibleMeasurements) {
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        ActionCounters(
+            measurements = measurements,
+            plan = plan,
+            autoTurn = autoTurn,
+            autoAiring = autoAiring,
+        )
+
+        // Примечание — после переворотов и проветриваний: это последнее, что говорит
+        // об итоге дня, и пишется о дне целиком, а не о замере. В архиве пустое не
+        // показывается вовсе — поле, в которое нельзя писать, читалось бы поломкой.
+        if (plan != null && onDayNoteChange != null && (!readOnly || plan.note.isNotBlank())) {
+            Spacer(Modifier.height(12.dp))
+            DayNoteCard(
+                dayId = plan.id,
+                note = plan.note,
+                readOnly = readOnly,
+                onNoteChange = onDayNoteChange,
+            )
+        }
+
+        // Реклама — между итогами дня и историей: на стыке двух частей она не
+        // разрывает ни форму, ни список. Хозяин объявления — сама шторка, как в
+        // аналитике дня; пока объявление не пришло, карточки и её отступа нет.
+        AdBanner(adHost, Modifier.padding(top = 24.dp))
+
+        Spacer(Modifier.height(24.dp))
+        MeasurementsHeading("История замеров")
+        if (measurements.isEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = emptyText,
+                style = DesignType.Body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            Column(Modifier.animateContentSize()) {
+                val shown =
+                    if (historyExpanded) ordered
+                    else ordered.take(VisibleMeasurements)
+                shown.forEach { measurement ->
                     Spacer(Modifier.height(12.dp))
-                    ShowAllToggle(
-                        expanded = historyExpanded,
-                        total = measurements.size,
-                        onClick = { historyExpanded = !historyExpanded },
+                    // Без обработчиков строка становится просто карточкой замера —
+                    // ровно то, что нужно архивному инкубатору: показания видно,
+                    // «Изм.» и крестика у них нет.
+                    MeasurementRow(
+                        measurement = measurement,
+                        tempTarget = tempTarget,
+                        dampTarget = dampTarget,
+                        onEdit = if (readOnly) null else ({ onEdit(measurement) }),
+                        onDelete = if (readOnly) null else ({ onDelete(measurement) }),
+                        selected = form.editingId == measurement.id,
                     )
                 }
             }
+            if (measurements.size > VisibleMeasurements) {
+                Spacer(Modifier.height(12.dp))
+                ShowAllToggle(
+                    expanded = historyExpanded,
+                    total = measurements.size,
+                    onClick = { historyExpanded = !historyExpanded },
+                )
+            }
         }
     }
+}
+
+/**
+ * «Примечание ко дню» — обычная карточка с полем, без кнопки «Сохранить».
+ *
+ * Текст пишется в [Value.note] дня — ту же заметку, что правит редактор дня на
+ * «Расписании» и показывает его карточка. Сохраняется сам: через [NoteSaveDelayMillis]
+ * после последнего символа и ещё раз при уходе карточки с экрана, чтобы закрытая
+ * посреди фразы шторка не потеряла её хвост.
+ *
+ * Набранное держится здесь, а не в ViewModel: строка из базы возвращается после
+ * каждой записи, и поле, перезаписываемое ответом, теряло бы символы, набранные за
+ * время записи. Ответ базы принимается, только пока в поле нет несохранённого, — так
+ * правка дня с «Расписания» доходит и сюда.
+ */
+@Composable
+private fun DayNoteCard(
+    dayId: Long,
+    note: String,
+    readOnly: Boolean,
+    onNoteChange: (dayId: Long, note: String) -> Unit,
+) {
+    var text by rememberSaveable(dayId) { mutableStateOf(note) }
+    var sent by rememberSaveable(dayId) { mutableStateOf(note) }
+    LaunchedEffect(note) {
+        if (text == sent) {
+            text = note
+            sent = note
+        }
+    }
+    LaunchedEffect(text) {
+        if (text == sent) return@LaunchedEffect
+        delay(NoteSaveDelayMillis)
+        sent = text
+        onNoteChange(dayId, text)
+    }
+    val latestText by rememberUpdatedState(text)
+    val latestSent by rememberUpdatedState(sent)
+    val latestSave by rememberUpdatedState(onNoteChange)
+    DisposableEffect(dayId) {
+        onDispose {
+            if (latestText != latestSent) latestSave(dayId, latestText)
+        }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(TileRadius),
+        color = DesignPalette.Surface,
+        border = BorderStroke(CardBorderWidth, DesignPalette.CardBorder),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                text = "Примечание ко дню",
+                style = DesignType.Micro,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            if (readOnly) {
+                Text(
+                    text = text,
+                    style = DesignType.Body,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            } else {
+                SheetTextField(
+                    value = text,
+                    onValueChange = { text = it.capitalizeFirst() },
+                    placeholder = "Что важно про этот день…",
+                    singleLine = false,
+                    maxLines = 6,
+                    minHeight = 40.dp,
+                    verticalPadding = 9.dp,
+                    capitalization = KeyboardCapitalization.Sentences,
+                    radius = InnerRadius,
+                    modifier = Modifier.animateContentSize(),
+                )
+            }
+        }
+    }
+}
+
+/** Сколько набор должен молчать, прежде чем примечание ко дню уйдёт в базу. */
+private const val NoteSaveDelayMillis = 600L
+
+/** Заголовок части блока замеров — тем же шрифтом, что «Замеры за сегодня». */
+@Composable
+private fun MeasurementsHeading(text: String) {
+    Text(
+        text = text,
+        style = DesignType.CardHeading.copy(hyphens = Hyphens.Auto),
+        color = MaterialTheme.colorScheme.onSurface,
+    )
 }
 
 /**
@@ -2201,7 +2545,8 @@ internal fun MeasureTile(
 ) {
     Surface(
         shape = RoundedCornerShape(TileRadius),
-        color = DesignPalette.MeasureTile,
+        color = DesignPalette.Surface,
+        border = BorderStroke(CardBorderWidth, DesignPalette.CardBorder),
         modifier = modifier,
     ) {
         Column(Modifier.padding(12.dp)) {
@@ -2317,7 +2662,8 @@ private fun ActionTile(
     ).joinToString(" · ")
     Surface(
         shape = RoundedCornerShape(TileRadius),
-        color = DesignPalette.MeasureTile,
+        color = DesignPalette.Surface,
+        border = BorderStroke(CardBorderWidth, DesignPalette.CardBorder),
         modifier = modifier,
     ) {
         Column(Modifier.padding(12.dp)) {
@@ -2819,12 +3165,15 @@ internal fun MeasurementRow(
     // редактируемую отмечает зелёная заливка — та же, что у чипа «Инкубация». Цвет
     // перетекает, а не переключается: строка и форма меняются одним движением.
     val rowColor by animateColorAsState(
-        targetValue = if (selected) DesignPalette.StatusActiveSurface else DesignPalette.MeasureRow,
+        targetValue = if (selected) DesignPalette.StatusActiveSurface else DesignPalette.Surface,
         label = "measurement-row-surface",
     )
+    // Белая с обводкой, как плитки над журналом: блок замеров стоит прямо на фоне
+    // шторки, и строка без границы на нём растворялась.
     Surface(
         shape = RoundedCornerShape(InnerRadius),
         color = rowColor,
+        border = BorderStroke(CardBorderWidth, DesignPalette.CardBorder),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -2970,6 +3319,55 @@ private fun ExpandableNote(note: String, key: Long, collapsedLines: Int = 1) {
             ),
     )
 }
+
+/**
+ * Примечание ко дню в карточке дня на «Расписании» — плашка того же цвета, что плитки
+ * режима над ней, с подписью «ПРИМЕЧАНИЕ».
+ *
+ * Свёрнуто — две строки с многоточием: карточек дней тридцать, и длинная заметка одного
+ * дня не должна растягивать список. Нажатие раскрывает её целиком, повторное сворачивает;
+ * нажимается вся плашка, а не только текст. Заметка, что влезла, не нажимается вовсе —
+ * тогда тап проходит в карточку и раскрывает день, как раньше.
+ */
+@Composable
+private fun DayNotePlate(note: String, key: Long) {
+    var expanded by remember(key) { mutableStateOf(false) }
+    var truncated by remember(key) { mutableStateOf(false) }
+    Surface(
+        shape = RoundedCornerShape(InnerRadius),
+        color = DesignPalette.PillSurface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(InnerRadius))
+            .then(
+                if (truncated || expanded) Modifier.clickable { expanded = !expanded }
+                else Modifier
+            ),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text(
+                text = "ПРИМЕЧАНИЕ",
+                style = DesignType.PillLabel,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = note.capitalizeFirst(),
+                style = DesignType.Caption,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = if (expanded) Int.MAX_VALUE else DayNoteLines,
+                overflow = TextOverflow.Ellipsis,
+                // В развёрнутом виде переполнения нет по определению — иначе признак
+                // сбрасывался бы сам и заметку было бы не свернуть обратно.
+                onTextLayout = { if (!expanded) truncated = it.hasVisualOverflow },
+                modifier = Modifier.fillMaxWidth().animateContentSize(),
+            )
+        }
+    }
+}
+
+/** Сколько строк примечания видно в свёрнутой карточке дня. */
+private const val DayNoteLines = 2
 
 /** Половина строки замера: пустой слот держит место, чтобы правая величина не съезжала влево. */
 @Composable

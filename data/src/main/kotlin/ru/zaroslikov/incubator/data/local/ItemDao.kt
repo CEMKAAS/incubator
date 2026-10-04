@@ -290,6 +290,24 @@ interface ItemDao {
     @Delete
     suspend fun deleteCandling(candling: CandlingEntity)
 
+    /**
+     * Закладка и её овоскопирования из формы правки — одной транзакцией. «Отбраковано
+     * яиц» в форме — итог `Egg_rejected` и суммы овоскопирований, правленный в одном
+     * диалоге, так что строка закладки и записи овоскопирований верны только вместе:
+     * записанные порознь, они на время сдвинули бы «Осталось», а процесс, убитый между
+     * ними, оставил бы сдвиг навсегда.
+     */
+    @Transaction
+    suspend fun updateBatchWithCandlings(
+        batch: BatchEntity,
+        save: List<CandlingEntity>,
+        delete: List<CandlingEntity>,
+    ) {
+        delete.forEach { deleteCandling(it) }
+        save.forEach { insertCandling(it) }
+        updateBatch(batch)
+    }
+
     // --- Напоминания ---
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)

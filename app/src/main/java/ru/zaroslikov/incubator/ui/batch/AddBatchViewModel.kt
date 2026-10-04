@@ -21,7 +21,10 @@ import ru.zaroslikov.incubator.domain.incubation.setAutoIncubator
 import ru.zaroslikov.incubator.domain.model.Batch
 import ru.zaroslikov.incubator.domain.model.BatchStatus
 import ru.zaroslikov.incubator.domain.model.CustomSpecies
+import ru.zaroslikov.incubator.domain.model.PowerSettings
 import ru.zaroslikov.incubator.domain.model.Species
+import ru.zaroslikov.incubator.ui.components.toFormState
+import ru.zaroslikov.incubator.ui.components.toSettings
 import ru.zaroslikov.incubator.domain.model.Time
 import ru.zaroslikov.incubator.domain.model.Value
 import ru.zaroslikov.incubator.domain.model.knownBreeds as knownBreedsOf
@@ -39,6 +42,7 @@ import ru.zaroslikov.incubator.ui.parseDate
 import ru.zaroslikov.incubator.ui.todayText
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.Date
 
 /**
  * Откуда берётся режим, взятый из завершённой закладки.
@@ -135,72 +139,50 @@ data class AddBatchState(
     /** Правка существующей закладки; при создании — `false`. */
     val isEditing: Boolean = false,
     /**
-     * Форма правки ещё читается из базы.
-     *
-     * Только при правке: у новой закладки читать нечего, поля заполняются на месте.
-     * А пустые поля над существующей закладкой — это не «ничего не заполнено», это
-     * ответ, которого ещё нет; и, в отличие от [scheduleReady], вопрос здесь про
-     * первую страницу, а не про таблицу.
+     * Форма правки ещё читается из базы. Только при правке: пустые поля над существующей
+     * закладкой — не «ничего не заполнено», а ответ, которого ещё нет. Вопрос про первую
+     * страницу, в отличие от [scheduleReady], который про таблицу.
      */
     val loading: Boolean = false,
     /**
-     * Виды птицы — встроенные и свои. Сетка выбора рисует по нему плитки, таблица
-     * расписания порождается из него же (`catalog.schedule`), а срок под плиткой —
-     * его `incubationDays`. Подписка на него живёт с ViewModel, а не с загрузкой
-     * формы: свой вид могут завести из этой же формы, и список должен обновиться, не
-     * закрывая её.
+     * Виды птицы — встроенные и свои: плитки сетки, срок под плиткой, таблица
+     * (`catalog.schedule`). Подписка живёт с ViewModel, а не с загрузкой формы: свой вид
+     * могут завести из этой же формы.
      */
     val catalog: SpeciesCatalog = SpeciesCatalog.EMPTY,
     /**
      * Породы выбранной птицы, которые уже вводили в других закладках, — подсказки под
-     * полем «Порода» (см. `knownBreeds` в :domain).
-     *
-     * Поле состояния, а не свойство с `get()`: страницу полей перерисовывает каждый
-     * набранный символ, и обход всех закладок хозяйства с ним вместе не нужен. Список
-     * пересчитывается ровно там, где меняются его входы, — ответ базы и смена вида
-     * птицы (`withKnownBreeds`).
+     * полем «Порода» (`knownBreeds` в :domain). Поле, а не `get()`: страницу полей
+     * перерисовывает каждый символ; пересчитывается в `withKnownBreeds` — на ответ базы и
+     * смену вида.
      */
     val knownBreeds: List<String> = emptyList(),
     /** Времена напоминаний, как их правят в форме; при сохранении перезаписываются целиком. */
     val reminders: List<Time> = emptyList(),
     /**
-     * Режим по дням — вторая страница формы, та самая таблица.
+     * Режим по дням — вторая страница формы. Строками ([ValueUiState]), а не [Value]:
+     * стёртая температура должна остаться пустой, а не стать нулём.
      *
-     * Хранится строками ([ValueUiState]), а не [Value]: поля ввода работают с текстом,
-     * и стёртая температура должна остаться пустой, а не превратиться по дороге в ноль.
-     *
-     * При создании список порождается из [SpeciesCatalog.schedule] и переписывается
-     * заново при смене вида — у каждой птицы свой срок, и строки прежнего вида к новому
-     * отношения не имеют. При правке в него загружаются уже существующие строки закладки
-     * **вместе с их идентификаторами**: замеры висят именно на них, поэтому сохранение
-     * обязано их обновлять, а не создавать заново.
+     * При создании порождается из [SpeciesCatalog.schedule] и переписывается при смене
+     * вида. При правке загружаются существующие строки **вместе с идентификаторами**:
+     * замеры висят на них, поэтому сохранение обновляет строки, а не создаёт заново.
      */
     val schedule: List<ValueUiState> = emptyList(),
     /**
-     * Таблица наполнена — не путать с «непустая».
-     *
-     * При правке строки приезжают из базы не сразу, и без этого флага пустой список в
-     * первые кадры был бы неотличим от вида, для которого режима нет вовсе: страница
-     * успевала бы сообщить, что режима у курицы не существует.
+     * Таблица наполнена — не путать с «непустая»: при правке строки приезжают из базы не
+     * сразу, и без флага пустой список был бы неотличим от вида, для которого режима нет.
      */
     val scheduleReady: Boolean = false,
     /**
-     * Завершённые закладки того же вида — из них можно взять уже выверенный режим
-     * вместо расписания по умолчанию. Пусто — предлагать нечего, диалог не появится.
-     * При правке не используется: расписание у закладки уже есть.
-     *
-     * У каждой рядом лежит ответ, есть ли у неё замеры: от него зависит, предлагать ли
-     * взять из неё среднее по факту, а не только план ([ArchiveScheduleSource]).
+     * Завершённые закладки того же вида — источник выверенного режима вместо расписания
+     * по умолчанию. Пусто — диалога нет. При правке не используется. Рядом с каждой —
+     * число замеров: от него зависит, предлагать ли среднее по факту ([ArchiveScheduleSource]).
      */
     val archiveOptions: List<ArchiveOption> = emptyList(),
     /**
-     * Откуда режим в таблице — из архивной закладки или из файла — или `null`, если
-     * таблица порождена [SpeciesCatalog.schedule].
-     *
-     * Нужно не диалогу, а странице расписания: пока режим справочный, над таблицей
-     * стоит предупреждение об этом, а как только он пришёл из живой закладки или из
-     * файла, предупреждение неверно и на его месте нужнее сам источник — какая
-     * закладка, с каким выводом и чем она кончилась, либо чей файл и на сколько дней.
+     * Откуда режим в таблице — из архивной закладки или из файла — или `null`, если он
+     * порождён [SpeciesCatalog.schedule]. От этого зависит, что стоит над таблицей:
+     * предупреждение о справочных цифрах или сводка об источнике.
      */
     val scheduleOrigin: ScheduleOrigin? = null,
     /** Файл расписания прочитан и ждёт ответа в диалоге; `null` — диалога нет. */
@@ -215,65 +197,56 @@ data class AddBatchState(
      */
     val allBatches: List<Batch> = emptyList(),
     /**
-     * Тот же режим, что в [schedule], но до того, как по нему прошлась автоматика:
-     * строки из :domain, из архива или из файла с целыми столбцами поворота и
-     * проветривания.
-     *
-     * Нужен ровно затем, чтобы выключатель работал в обе стороны. Включённая
-     * автоматика стирает норму в пустоту (`setAutoIncubator` и его `null`), и взять
-     * стёртое обратно больше неоткуда — а выключатель, который нельзя отжать, это не
-     * выключатель. Правки в других столбцах при этом не трогаются: возвращаются два
-     * столбца, а не таблица.
+     * Тот же режим, что в [schedule], но до автоматики: с целыми столбцами поворота и
+     * проветривания. Включённая автоматика стирает норму (`setAutoIncubator`), и без этого
+     * снимка выключатель нельзя было бы отжать; возвращаются два столбца, правки в
+     * остальных не трогаются.
      */
     val scheduleBase: List<ValueUiState> = emptyList(),
     /**
-     * Переключатели автоматики уже трогали руками.
-     *
-     * Флаги приезжают из инкубатора асинхронно, и без этого ответ базы затирал бы
-     * выбор человека, успевшего нажать раньше: включил бы обратно то, что только что
-     * выключили.
+     * Переключатели автоматики уже трогали руками: флаги приезжают из инкубатора
+     * асинхронно, и без этого ответ базы затёр бы выбор человека, успевшего нажать раньше.
      */
     val autoTouched: Boolean = false,
     /** Напоминания, какими они были при открытии: их нужно удалить перед перезаписью. */
     val loadedReminders: List<Time> = emptyList(),
     /**
+     * Овоскопирования закладки по дням — только при правке ([candlingEditRows]). Их сумма
+     * живёт в `form.candlingRejected`; записи в базе меняются при сохранении формы.
+     */
+    val candlings: List<CandlingEditRow> = emptyList(),
+    /**
+     * Открытый диалог «Отбраковано яиц» и то, что в нём набрано; `null` — закрыт.
+     * Черновик, а не правка формы на месте: «Отмена» должна вернуть всё как было, и
+     * держит его ViewModel, а не `rememberSaveable`, — так набранное переживает поворот
+     * вместе со строками дней.
+     */
+    val rejectedDraft: RejectedDraft? = null,
+    /**
      * Идущие закладки этого инкубатора со своими днями — соседи новой закладки по
-     * воздуху. Только при создании: при правке закладка сама среди идущих, и сравнивать
-     * её с собой было бы зелёной таблицей ни о чём. Подписка живёт с формой ([load]).
+     * воздуху. Только при создании: при правке закладка сама среди идущих. Подписка живёт
+     * с формой ([load]).
      */
     val neighbours: List<NeighbourSchedule> = emptyList(),
     /**
-     * Сколько яиц уже лежит в инкубаторе — сумма заложенного по [neighbours], и
-     * вместимость самого устройства. Вместе они рисуют под «Количеством яиц» ту же
-     * полосу, что карточка инкубатора на стартовом экране, только с этой закладкой
-     * поверх: сколько мест останется, видно до того, как яйца легли в лоток, а перебор
-     * — пока число ещё можно поправить. Только при создании, как и [neighbours]: при
-     * правке закладка сама среди идущих и считала бы себя дважды.
-     *
-     * Сумма — поле, а не `get()` по [neighbours], по тому же правилу, что [knownBreeds]:
-     * страницу полей перерисовывает каждый символ, и складывать соседей на каждую
-     * перерисовку незачем — они меняются только с ответом базы.
+     * Сколько яиц уже лежит в инкубаторе — сумма заложенного по [neighbours]. Вместе с
+     * [capacity] рисует под «Количеством яиц» полосу заполнения, чтобы перебор был виден,
+     * пока число можно поправить. Только при создании, как [neighbours]. Поле, а не
+     * `get()`, по тому же правилу, что [knownBreeds].
      */
     val occupiedEggs: Int = 0,
     /** Вместимость инкубатора; ноль — не указана, и полоса просит её заполнить. */
     val capacity: Int = 0,
     /**
-     * Приговор каждой строке [schedule] — насколько её температура и влажность
-     * расходятся с планом соседей на ту же дату ([overlapVerdicts]); `null` у дня, в
-     * который соседей в приборе нет.
-     *
-     * Поле состояния, а не `get()`: страницу расписания перерисовывает каждый набранный
-     * символ, и обход всех дней всех соседей на каждую перерисовку не нужен. Считается
-     * там, где меняются входы, — строка таблицы, дата, вид, режим, ответ базы о соседях
-     * ([withOverlap]).
+     * Приговор каждой строке [schedule] — насколько её температура и влажность расходятся
+     * с планом соседей на ту же дату ([overlapVerdicts]); `null` у дня без соседей. Поле,
+     * а не `get()`; считается в [withOverlap] там, где меняются входы.
      */
     val overlap: List<CellVerdicts?> = emptyList(),
     /**
-     * Есть хоть одна окрашенная клетка — над таблицей нужна легенда. Поле, а не `get()`,
-     * по тому же правилу, что [overlap]: геттер обходил бы список на каждую перерисовку.
-     * Именно «окрашенная», а не «с приговором»: у дня с соседом, но без единой заданной
-     * температуры и влажности, приговор есть, а заливки нет, и легенда над белой
-     * таблицей объясняла бы цвета, которых на экране нет.
+     * Есть хоть одна окрашенная клетка — над таблицей нужна легенда. Именно «окрашенная»,
+     * а не «с приговором»: у дня с соседом, но без заданных температуры и влажности,
+     * приговор есть, а заливки нет.
      */
     val overlapShown: Boolean = false,
 ) {
@@ -289,7 +262,18 @@ data class AddBatchState(
             !form.splitByBreeds || form.breeds.all {
                 it.name.isNotBlank() && (it.eggs.toIntOrNull() ?: 0) > 0
             } && form.breedNamesDistinct
-        )
+        ) &&
+            // Пустой вывод у завершённой закладки — не ноль, а стёртый итог: «не указали»
+            // и «вывелось ноль» — разные ответы, как и в диалоге завершения.
+            (!form.editableHatch || form.eggAllEND.isNotBlank()) &&
+            // Птенцов не больше, чем дожило яиц: «Количество яиц» можно уменьшить уже
+            // после вывода, и молча урезать вывод при сохранении было бы хуже отказа.
+            form.hatchFits &&
+            // Момент окончания — не раньше закладки и не в будущем, как в диалогах завершения.
+            (!form.finished || form.finishMomentError == null) &&
+            // Отбраковано не больше, чем заложено. Диалог этого не пустит, но заложенное
+            // можно уменьшить уже после, и тогда держит только это место.
+            (!isEditing || form.rejectedFits)
 }
 
 sealed interface AddBatchIntent {
@@ -304,6 +288,21 @@ sealed interface AddBatchIntent {
 
     /** Правка любого поля первой страницы: шторка отдаёт копию [BatchUiState] целиком. */
     data class Update(val form: BatchUiState) : AddBatchIntent
+
+    /** Нажатие на поле «Отбраковано яиц»: открывает диалог с разбивкой. */
+    data object OpenRejected : AddBatchIntent
+
+    /** Отбраковано руками — набранный в диалоге текст как есть. */
+    data class UpdateManualRejected(val rejected: String) : AddBatchIntent
+
+    /** Выбраковано на овоскопировании строки [index] диалога — набранный текст как есть. */
+    data class UpdateCandling(val index: Int, val rejected: String) : AddBatchIntent
+
+    /** «Готово» в диалоге отбраковки. */
+    data object ConfirmRejected : AddBatchIntent
+
+    /** «Отмена» в диалоге отбраковки: набранное в нём пропадает. */
+    data object DismissRejected : AddBatchIntent
 
     data class UpdateBreed(val index: Int, val row: BreedUiState) : AddBatchIntent
 
@@ -410,6 +409,13 @@ class AddBatchViewModel(
      */
     private var loadJob: Job? = null
 
+    /**
+     * При правке: свет закладки, как он лежит в базе, и как его вернёт нетронутая форма.
+     * Пустые поля закладки форма показывает значениями инкубатора, и сохранение без
+     * правки не должно превращать их в собственные (`save`). `null` при создании.
+     */
+    private var shownPower: Pair<PowerSettings, PowerSettings>? = null
+
     /** Чтение архива закладок вида; своё на каждый вид, см. [refreshArchive]. */
     private var archiveJob: Job? = null
 
@@ -437,6 +443,11 @@ class AddBatchViewModel(
         when (intent) {
             is AddBatchIntent.Load -> load(intent.incubatorId, intent.batchId)
             is AddBatchIntent.Update -> updateForm(intent.form)
+            AddBatchIntent.OpenRejected -> openRejected()
+            is AddBatchIntent.UpdateManualRejected -> updateRejectedDraft(null, intent.rejected)
+            is AddBatchIntent.UpdateCandling -> updateRejectedDraft(intent.index, intent.rejected)
+            AddBatchIntent.ConfirmRejected -> confirmRejected()
+            AddBatchIntent.DismissRejected -> reduce { copy(rejectedDraft = null) }
             is AddBatchIntent.UpdateBreed -> updateBreed(intent.index, intent.row)
             AddBatchIntent.AddBreed -> addBreed()
             is AddBatchIntent.RemoveBreed -> removeBreed(intent.index)
@@ -561,6 +572,7 @@ class AddBatchViewModel(
             ).withKnownBreeds()
         }
 
+        shownPower = null
         if (editing) {
             loadJob = viewModelScope.launch {
                 val batch = itemsRepository.getBatch(batchId).filterNotNull().first()
@@ -569,9 +581,30 @@ class AddBatchViewModel(
                 // таблица читается сверху вниз по дням.
                 val days = itemsRepository.getBatchValues(batchId).first()
                     .map { it.toValueUiState(temperatureUnit) }
+                // Каталог читается здесь, а не берётся из состояния: в первые кадры формы
+                // там только встроенные виды, и у своего вида не нашлось бы ни срока, ни
+                // дней овоскопирования.
+                val candlings = candlingEditRows(
+                    batch = batch,
+                    catalog = SpeciesCatalog(itemsRepository.getCustomSpecies().first()),
+                    saved = itemsRepository.getCandlings(batchId).first(),
+                    now = Date(),
+                )
+                // Пустые поля света у закладки значат «как у инкубатора» — так считают и
+                // «Финансы», — и форма показывает именно эти значения, а не пустоту:
+                // закладки, заложенные до появления полей, иначе выглядели бы без света.
+                val device = itemsRepository.getIncubator(batch.incubatorId).first()
+                val power = batch.power.over(device?.power ?: PowerSettings())
+                // Что из этого своё у закладки и что форма покажет — чтобы при сохранении
+                // отличить нетронутые поля от правки (`save`). Сравнивается то, что форма
+                // вернёт, а не `power`: состояние полей округляет и нормализует.
+                shownPower = batch.power to power.toFormState().toSettings()
                 reduce {
                     copy(
-                        form = batch.toBatchUiState(),
+                        form = batch.toBatchUiState(candlings.rejectedSum())
+                            .copy(power = power.toFormState())
+                            .withBalancedCull(),
+                        candlings = candlings,
                         loadedReminders = times,
                         reminders = times.map { it.copy() },
                         schedule = days,
@@ -596,12 +629,22 @@ class AddBatchViewModel(
             reduce {
                 // Вместимость — под полосу заполнения; её человек не трогает, и она
                 // ложится в состояние в любом случае.
-                val sized = copy(capacity = incubator.capacity)
+                val sized = copy(
+                    capacity = incubator.capacity,
+                    // Свет — так же, как автоматика: значения устройства по умолчанию,
+                    // если человек ещё ничего не вписал сам.
+                    form = if (form.power.isBlank) {
+                        form.copy(power = incubator.power.toFormState())
+                    } else form,
+                )
                 // База отвечает не мгновенно, и человек мог успеть нажать раньше: его
                 // выбор старше ответа устройства, иначе переключатель отскакивал бы назад.
                 if (autoTouched) return@reduce sized
                 val next = sized.copy(
-                    form = form.copy(airing = incubator.autoAiring, over = incubator.autoTurn),
+                    // От `sized`, а не от `form`: тот ещё без света устройства, и
+                    // собранная из него форма стирала только что подставленные
+                    // потребление и тариф — закладка сохранялась с пустыми полями.
+                    form = sized.form.copy(airing = incubator.autoAiring, over = incubator.autoTurn),
                 )
                 // Флаги приходят уже после того, как таблица нарисована по умолчанию:
                 // стирает нормы в столбцах поворота и проветривания setAutoIncubator, а
@@ -687,10 +730,23 @@ class AddBatchViewModel(
      * «День 7/28» и не имела бы строк для дней с 22-го по 28-й. Пересоздать таблицу
      * нельзя по правилу [save] — идентификаторы дней держат замеры. Ошибка в виде
      * поправляется удалением закладки и новой закладкой.
+     *
+     * У завершённой закладки так же заперты дата и время закладки: инкубация прожита, от
+     * них отсчитаны её дни и итог, и сдвиг задним числом переставил бы замеры по чужим
+     * дням календаря.
      */
     private fun updateForm(requested: BatchUiState) {
         val previous = current
-        val updated = if (previous.isEditing) requested.copy(type = previous.form.type) else requested
+        val updated = when {
+            !previous.isEditing -> requested
+            previous.form.finished -> requested.copy(
+                type = previous.form.type,
+                data = previous.form.data,
+                time = previous.form.time,
+                candlingRejected = previous.form.candlingRejected,
+            ).withBalancedCull(clampHatch = requested.eggAllEND != previous.form.eggAllEND)
+            else -> requested.copy(type = previous.form.type)
+        }
         val speciesChanged = updated.type != previous.form.type
         val dateChanged = updated.data != previous.form.data
         reduce {
@@ -709,6 +765,80 @@ class AddBatchViewModel(
             }
         }
         if (speciesChanged) refreshArchive(updated.type)
+    }
+
+    /** Открывает диалог «Отбраковано яиц» с тем, что сейчас стоит в форме. */
+    private fun openRejected() {
+        reduce {
+            if (!isEditing) this
+            else copy(rejectedDraft = RejectedDraft(form.eggRejected, candlings))
+        }
+    }
+
+    /**
+     * Правка поля диалога — ручной отбраковки или одного овоскопирования ([index]
+     * `null` — ручная). Каждое поле зажимается остатком: заложенные минус всё, что
+     * набрано в остальных, — так итог внизу диалога не перерастёт «Количество яиц», в
+     * каком бы порядке ни исправляли числа.
+     */
+    private fun updateRejectedDraft(index: Int?, input: String) {
+        reduce {
+            val draft = rejectedDraft ?: return@reduce this
+            val hatched = form.fixedHatch
+            // У закладки с вписанными птенцами главные — птенцы: вся отбраковка равна
+            // «заложено − вывелось», ручная часть — остаток после овоскопирований, и
+            // править её руками нечего.
+            if (hatched != null) {
+                if (index == null || index !in draft.candlings.indices) return@reduce this
+                val pool = (form.eggCount - hatched).coerceAtLeast(0)
+                val others = draft.candlings.filterIndexed { i, _ -> i != index }.rejectedSum()
+                val candlings = draft.candlings.toMutableList().also {
+                    it[index] = it[index].copy(rejected = clampCount(input, (pool - others).coerceAtLeast(0)))
+                }
+                val manual = (pool - candlings.rejectedSum()).coerceAtLeast(0)
+                return@reduce copy(
+                    rejectedDraft = draft.copy(
+                        manual = if (manual == 0) "" else manual.toString(),
+                        candlings = candlings,
+                    ),
+                )
+            }
+            val eggs = form.eggCount
+            val next = if (index == null) {
+                draft.copy(manual = clampCount(input, (eggs - draft.candlingSum).coerceAtLeast(0)))
+            } else {
+                if (index !in draft.candlings.indices) return@reduce this
+                val others = draft.candlings.filterIndexed { i, _ -> i != index }.rejectedSum()
+                val limit = (eggs - draft.manualCount - others).coerceAtLeast(0)
+                draft.copy(
+                    candlings = draft.candlings.toMutableList().also {
+                        it[index] = it[index].copy(rejected = clampCount(input, limit))
+                    },
+                )
+            }
+            copy(rejectedDraft = next)
+        }
+    }
+
+    /**
+     * «Готово» в диалоге: набранное становится формой. В базу оно уходит вместе с
+     * остальной формой по «Сохранить» — до тех пор закрытая без сохранения форма не
+     * меняет ничего.
+     */
+    private fun confirmRejected() {
+        reduce {
+            val draft = rejectedDraft ?: return@reduce this
+            copy(
+                rejectedDraft = null,
+                candlings = draft.candlings,
+                form = form.copy(
+                    eggRejected = draft.manual,
+                    candlingRejected = draft.candlingSum,
+                    // Вывод не зажимается и здесь: лишний держит `isValid` (`hatchFits`), а
+                    // молча урезать его по «Готово» в соседнем диалоге — хуже отказа.
+                ).withBalancedCull(clampHatch = false),
+            )
+        }
     }
 
     /**
@@ -838,10 +968,6 @@ class AddBatchViewModel(
 
     /**
      * Подставляет в таблицу режим завершённой закладки того же вида.
-     *
-     * Раньше это спрашивали диалогом в момент сохранения, вслепую. Теперь таблица
-     * открыта, и подменять её за спиной у того, кто её только что правил, нельзя —
-     * поэтому выбор стоит над самой таблицей и виден результат.
      *
      * Брать можно двумя способами ([ArchiveScheduleSource]). [ArchiveScheduleSource.Plan] —
      * план той закладки как есть. [ArchiveScheduleSource.Fact] — среднее по её замерам:
@@ -1022,13 +1148,21 @@ class AddBatchViewModel(
     }
 
     // --- Напоминания -------------------------------------------------------------------------
+    //
+    // У завершённой закладки напоминаний в форме нет, и правки их отклоняются здесь же:
+    // будить больше не о чем, а строки `Batch_time` остаются как были — по ним
+    // «Вернуть в инкубацию» вернёт напоминания.
 
     private fun addReminder() {
-        reduce { copy(reminders = reminders + Time(id = 0, time = "08:00", idPT = 0)) }
+        reduce {
+            if (isEditing && form.finished) return@reduce this
+            copy(reminders = reminders + Time(id = 0, time = "08:00", idPT = 0))
+        }
     }
 
     private fun removeReminder(index: Int) {
         reduce {
+            if (isEditing && form.finished) return@reduce this
             if (index !in reminders.indices) return@reduce this
             copy(reminders = reminders.toMutableList().also { it.removeAt(index) })
         }
@@ -1036,6 +1170,7 @@ class AddBatchViewModel(
 
     private fun updateReminder(index: Int, time: String?, note: String?) {
         reduce {
+            if (isEditing && form.finished) return@reduce this
             if (index !in reminders.indices) return@reduce this
             val updated = reminders.toMutableList()
             val row = updated[index]
@@ -1070,8 +1205,25 @@ class AddBatchViewModel(
             val days = snapshot.schedule.map { it.toValue(temperatureUnit) }
 
             if (snapshot.isEditing) {
-                val batch = form.toBatch()
-                itemsRepository.updateBatch(batch)
+                // Свет, показанный из инкубатора поверх пустых полей закладки и никем не
+                // тронутый, остаётся пустым — по частям, мощность и тариф порознь: иначе
+                // сохранение формы записало бы в закладку тарифы инкубатора, и новая цена
+                // в инкубаторе её бы уже не коснулась.
+                val shown = shownPower
+                val batch = form.toBatch().let {
+                    if (shown == null) it
+                    else it.copy(power = it.power.withoutInherited(own = shown.first, shown = shown.second))
+                }
+                // Записи овоскопирований — в одной транзакции с закладкой: итог
+                // «Отбраковано яиц», подтверждённый в диалоге, — это её `eggRejected` и их
+                // сумма вместе, и одно без другого его бы сдвинуло. Пишутся только
+                // изменённые строки (`candlingWrites`).
+                val writes = candlingWrites(batch.id, snapshot.candlings, todayText())
+                if (writes.isEmpty) {
+                    itemsRepository.updateBatch(batch)
+                } else {
+                    itemsRepository.updateBatchWithCandlings(batch, writes.save, writes.delete)
+                }
                 itemsRepository.updateSchedule(days)
                 rewriteReminders(batch, snapshot)
                 sendEffect(AddBatchEffect.Saved(listOf(form.id)))
@@ -1139,9 +1291,7 @@ class AddBatchViewModel(
      * Строки времён остаются в базе — их нужно сохранить: закладку могут вернуть в
      * работу, и будильники восстанавливаются оттуда же. А звенеть или молчать, решает
      * расписание, которое считается по базе: завершённая закладка в него не попадает
-     * (`plannedReminders`). Прежде это решалось здесь, условием `arhive == "0"`, и
-     * условие приходилось помнить в каждом месте, где закладку записывают, — сохранение
-     * формы завершённой закладки когда-то возвращало ей будильники именно так.
+     * (`plannedReminders`).
      */
     private suspend fun rewriteReminders(batch: Batch, snapshot: AddBatchState) {
         snapshot.loadedReminders.forEach { itemsRepository.deleteTime(it) }

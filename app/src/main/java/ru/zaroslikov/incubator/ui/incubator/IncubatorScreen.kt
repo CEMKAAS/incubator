@@ -5,7 +5,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeOut
@@ -99,13 +107,10 @@ import ru.zaroslikov.incubator.ads.AdBannerAfter
 import ru.zaroslikov.incubator.ads.BannerAdHosts
 import ru.zaroslikov.incubator.ads.rememberBannerAdHost
 import ru.zaroslikov.incubator.ads.rememberBannerAdHosts
-import ru.zaroslikov.incubator.BuildConfig
-import ru.zaroslikov.incubator.InventoryApplication
 import ru.zaroslikov.incubator.analytics.Analytics
 import ru.zaroslikov.incubator.analytics.Events
 import ru.zaroslikov.incubator.domain.stats.HatchSummary
 import ru.zaroslikov.incubator.domain.stats.combined
-import ru.zaroslikov.incubator.rustore.IS_RUSTORE_BUILD
 import ru.zaroslikov.incubator.ui.batch.HatchCelebrationDialog
 import ru.zaroslikov.incubator.ui.batch.HatchSummariesSaver
 import ru.zaroslikov.incubator.calendar.CalendarOffer
@@ -132,8 +137,13 @@ import ru.zaroslikov.incubator.ui.batch.airingTimerActive
 import ru.zaroslikov.incubator.ui.batch.FinishBatchHost
 import ru.zaroslikov.incubator.ui.batch.FinishGroupHost
 import ru.zaroslikov.incubator.ui.batch.StatusChip
+import ru.zaroslikov.incubator.ui.batch.batchStartMoment
+import ru.zaroslikov.incubator.ui.batch.incubationDay
 import ru.zaroslikov.incubator.ui.qr.IncubatorQrSheet
-import ru.zaroslikov.incubator.design.components.ChoiceChip
+import ru.zaroslikov.incubator.design.components.FieldHeight
+import ru.zaroslikov.incubator.design.components.FieldRadius
+import ru.zaroslikov.incubator.design.components.SheetDropdownField
+import ru.zaroslikov.incubator.design.components.formatCount
 import ru.zaroslikov.incubator.design.components.accentButtonColors
 import ru.zaroslikov.incubator.design.components.LoadingBox
 import ru.zaroslikov.incubator.design.components.SlidingTab
@@ -145,7 +155,7 @@ import ru.zaroslikov.incubator.design.components.statValue
 import ru.zaroslikov.incubator.design.components.withoutTop
 import ru.zaroslikov.incubator.ui.navigation.NavigationDestination
 import ru.zaroslikov.incubator.ui.start.modelLine
-import ru.zaroslikov.incubator.ui.start.speciesEmoji
+import ru.zaroslikov.incubator.ui.start.SpeciesGlyph
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
 import ru.zaroslikov.incubator.ui.daysBetween
@@ -158,7 +168,6 @@ import java.util.Date
 
 object IncubatorDestination : NavigationDestination {
     override val route = "Incubator"
-    override val titleRes = R.string.app_name
     const val itemIdArg = "incubatorId"
 
     /**
@@ -209,6 +218,18 @@ private const val ChipsSlideMillis = 180
 
 /** Порог в пикселях, ниже которого движение пальца не считается листанием. */
 private const val ChipsScrollThreshold = 3f
+
+/** Проявление списка при смене фильтра и при входе в архив или выходе из него. */
+private const val ListSwitchMillis = 260
+
+/** Откуда въезжает список: на столько он сдвинут в начале анимации. */
+private val ArchiveSlideDistance = 48.dp
+
+/** Насколько ниже начинает подъём список после смены статуса: короче въезда — это не смена места. */
+private val FilterRiseDistance = 16.dp
+
+/** Что сменилось в списке закладок — от этого зависит, откуда он появляется. */
+private enum class ListSwitch { Filter, IntoArchive, OutOfArchive }
 
 /** Её появление и исчезновение: короткое, чтобы кнопка не тянулась следом за пальцем. */
 private const val FabFadeMillis = 160
@@ -302,20 +323,24 @@ fun IncubatorScreen(
     // только итог. Диалоги одни и те же, разное у них лишь это.
     var finishHides by rememberSaveable { mutableStateOf(false) }
     var pendingDeleteId by rememberSaveable { mutableLongStateOf(0L) }
-    // Поздравление с выводом — салют и краткий итог, `HatchCelebrationDialog`. Пустой
-    // список — закрыто; иначе сводки только что завершённых закладок (одна или партия
-    // пород). `rememberSaveable` со своим `Saver`: поворот экрана не должен гасить
-    // праздник, а сводка после записи больше ниоткуда не приедет.
+    // Карточка итога — `HatchCelebrationDialog`: поздравление с салютом за вывод или
+    // «Инкубация прервана» без салюта за досрочную остановку. Пустой список — закрыто;
+    // иначе сводки только что завершённых закладок (одна или партия пород).
+    // `rememberSaveable` со своим `Saver`: поворот экрана не должен гасить карточку, а
+    // сводка после записи больше ниоткуда не приедет.
     var celebration by rememberSaveable(stateSaver = HatchSummariesSaver) {
         mutableStateOf(emptyList<HatchSummary>())
     }
-    // Одна точка на три пути завершения в срок: сюда приходит сводка из шторки
-    // закладки, из хоста диалогов меню карточки и из партии. Только с птенцами: у
-    // прерванной сводки нет по построению, а партия с одними нулями не праздник.
+    // Одна точка на все пути завершения: сюда приходит сводка из шторки закладки, из
+    // хоста диалогов меню карточки и из партии. Праздник — только с птенцами; прерванная
+    // закладка и вывод «ноль» (у партии — ноль по всем породам) получают ту же карточку
+    // без салюта, без события поздравления и без просьбы об оценке.
     val context = LocalContext.current
     val celebrate:(List<HatchSummary>) -> Unit = { summaries ->
         val hatched = summaries.sumOf { it.hatched }
-        if (hatched > 0) {
+        if (hatched == 0) {
+            if (summaries.isNotEmpty()) celebration = summaries
+        } else {
             Analytics.report(
                 Events.HATCH_CELEBRATED,
                 mapOf(
@@ -417,7 +442,7 @@ fun IncubatorScreen(
 
     if (showEditSheet) {
         AddIncubatorSheet(
-            incubatorId = viewModel.incubatorId,
+            incubatorId = uiState.incubatorId,
             draft = incubatorFormDraft,
             onDismiss = { showEditSheet = false },
             onSaved = { showEditSheet = false },
@@ -427,7 +452,7 @@ fun IncubatorScreen(
     // Форма закладки — тоже шторка (макет 12:3555), поэтому её хозяин экран, а не навигация.
     if (showAddBatchSheet) {
         AddBatchSheet(
-            incubatorId = viewModel.incubatorId,
+            incubatorId = uiState.incubatorId,
             draft = batchFormDraft,
             onDismiss = { showAddBatchSheet = false },
             onSaved = { batchIds, calendar ->
@@ -452,7 +477,7 @@ fun IncubatorScreen(
             draft = batchDetailDraft,
             onDismiss = { detailBatchId = 0L },
             readOnly = uiState.readOnly,
-            onHatched = { celebrate(listOf(it)) },
+            onSummary = { celebrate(listOf(it)) },
         )
     }
 
@@ -461,7 +486,7 @@ fun IncubatorScreen(
     // вовсе, кнопка к ней там не рисуется.
     if (showMeasurementSheet) {
         IncubatorMeasurementSheet(
-            incubatorId = viewModel.incubatorId,
+            incubatorId = uiState.incubatorId,
             draft = measurementDraft,
             onDismiss = { showMeasurementSheet = false },
             onScan = navigateToScanner,
@@ -473,7 +498,7 @@ fun IncubatorScreen(
     // печатают заранее.
     if (showQrSheet) {
         IncubatorQrSheet(
-            incubatorId = viewModel.incubatorId,
+            incubatorId = uiState.incubatorId,
             onDismiss = { showQrSheet = false },
         )
     }
@@ -482,7 +507,7 @@ fun IncubatorScreen(
     // с идентификатором. Экран под ней остаётся: правка не повод уходить из списка.
     if (editBatchId != 0L) {
         AddBatchSheet(
-            incubatorId = viewModel.incubatorId,
+            incubatorId = uiState.incubatorId,
             batchId = editBatchId,
             draft = batchFormDraft,
             onDismiss = { editBatchId = 0L },
@@ -498,9 +523,9 @@ fun IncubatorScreen(
         FinishBatchHost(
             batchId = finishBatchId,
             onDismiss = { finishBatchId = 0L },
-            onFinished = { hatched ->
+            onFinished = { summary ->
                 finishBatchId = 0L
-                hatched?.let { celebrate(listOf(it)) }
+                summary?.let { celebrate(listOf(it)) }
             },
             hide = finishHides,
         )
@@ -508,7 +533,7 @@ fun IncubatorScreen(
 
     if (finishGroupIds.isNotEmpty()) {
         FinishGroupHost(
-            incubatorId = viewModel.incubatorId,
+            incubatorId = uiState.incubatorId,
             batchIds = finishGroupIds.toList(),
             onDismiss = { finishGroupIds = LongArray(0) },
             onFinished = { summaries ->
@@ -518,17 +543,13 @@ fun IncubatorScreen(
         )
     }
 
-    // Поздравление стоит над списком, где завершённую карточку уже видно, — диалог
-    // экрана, а не шторки: та к этому моменту закрыта. Когда его закрывают («Отлично»,
-    // тап мимо или «назад») — единственная просьба оценить приложение: закладка
-    // доведена до срока и птенцы посчитаны, это та самая минута, когда есть чему
-    // радоваться (`ReviewController`). После поздравления, а не до: окно RuStore поверх
-    // салюта было бы окном поверх праздника. Только в сборке для RuStore и не чаще раза
-    // на версию — оба правила не здесь.
     calendarOffer?.let { offer ->
         AddToCalendarDialog(offer = offer, onDone = { calendarOffer = null })
     }
 
+    // Поздравление — диалог экрана, а не шторки: та к этому моменту закрыта. Его закрытие
+    // после вывода с птенцами — единственная просьба оценить приложение; после салюта, а
+    // не поверх него (`IncubatorIntent.CelebrationClosed`).
     if (celebration.isNotEmpty()) {
         val farm = remember(celebration) {
             val today = todayText()
@@ -545,11 +566,9 @@ fun IncubatorScreen(
             },
             onSendToFarm = { chicks -> sendToFarm(chicks, FARM_FROM_CELEBRATION) },
             onDismiss = {
+                val withChicks = celebration.any { it.hatched > 0 }
                 celebration = emptyList()
-                if (IS_RUSTORE_BUILD) {
-                    (context.applicationContext as InventoryApplication).container.review
-                        .offerAfterHatch(BuildConfig.VERSION_CODE)
-                }
+                viewModel.onIntent(IncubatorIntent.CelebrationClosed(withChicks))
             },
         )
     }
@@ -682,17 +701,9 @@ fun IncubatorScreen(
         if (uiState.readOnly) DesignPalette.HeaderSurfaceArchived else DesignPalette.HeaderSurface
     StatusBarAppearance(color = headerColor, lightIcons = true)
 
-    // Строка цифр в шапке сворачивается при листании вниз и возвращается, стоит потянуть
-    // вверх, — тем же приёмом и той же длительностью, что и ряд фильтров внутри вкладки
-    // «Закладки» (`chipsScroll` в [BatchesTab]), только соединение висит на колонке всего
-    // экрана и потому слышит любую из трёх страниц. Держать всю шапку неподвижной было
-    // дорого: на экране 2400 px она занимала пятую часть высоты ради трёх чисел, одно из
-    // которых у работающего инкубатора почти всегда «0 · Выведено», — списку оставалось
-    // чуть больше половины. Название и строка модели не уезжают: они отвечают на вопрос
-    // «где я», и уходить им некуда.
-    //
-    // Свёрнутая шапка — ровно та же геометрия, что у архивного инкубатора, у которого
-    // цифр нет вовсе; значит и выглядеть ей есть с чего.
+    // Строка цифр в шапке сворачивается при листании вниз и возвращается при листании
+    // вверх — как ряд фильтров в «Закладках», но соединение висит на колонке всего экрана
+    // и слышит все три страницы. Название и модель не уезжают: они отвечают на «где я».
     var statsCollapsed by remember { mutableStateOf(false) }
     val headerScroll = remember {
         object : NestedScrollConnection {
@@ -765,12 +776,8 @@ fun IncubatorScreen(
                     IncubatorTab.Batches -> BatchesTab(
                         uiState = uiState,
                         adHosts = batchesAdHosts,
-                        // Любая карточка ведёт в одну и ту же шторку — идущая, завершённая
-                        // и прерванная. Завершённые уходили на отдельный экран старого
-                        // оформления; он показывал те же сводку и расписание вдвое хуже,
-                        // и тап по «Не завершено» выбрасывал из нового дизайна в старый.
-                        // Шторка сама поймёт, что закладка кончилась, и откроется на
-                        // просмотр — см. `viewOnly` в `BatchDetailSheet`.
+                        // Любая карточка — идущая, завершённая, прерванная — ведёт в одну
+                        // шторку; кончившуюся она откроет на просмотр (`viewOnly`).
                         onBatchClick = { batch ->
                             Analytics.report(Events.OPEN_BATCH)
                             detailBatchId = batch.id
@@ -818,11 +825,15 @@ fun IncubatorScreen(
                     // «0 ₽ баланс» и «0 %» вывода это не пустая, а неверная сводка.
                     IncubatorTab.Stats ->
                         if (uiState.loading) LoadingBox()
-                        else ScrollingPage { StatsTab(uiState.stats, adHost = statsAdHost) }
+                        else ScrollingPage {
+                            if (uiState.readOnly) ArchivedTotalsNotice()
+                            StatsTab(uiState.stats, adHost = statsAdHost)
+                        }
 
                     IncubatorTab.Finance ->
                         if (uiState.loading) LoadingBox()
                         else ScrollingPage {
+                            if (uiState.readOnly) ArchivedTotalsNotice()
                             FinanceTab(uiState.finance, adHost = financeAdHost)
                         }
                 }
@@ -842,12 +853,12 @@ fun IncubatorScreen(
  * «Завершено».
  *
  * Цифры уходят все три, а не одна: шапка отвечает на вопрос «что здесь происходит
- * сейчас», а в архиве не происходит ничего. Две из них к тому же нулевые по построению
- * — архив прерывает все идущие закладки (`StartIntent.SetIncubatorHidden`), —
- * так что «0 · Активных закладок» и «0 · Яиц в работе» рассказывали бы про архив, а не
- * про этот инкубатор. «Выведено» — настоящий итог, но в одиночестве под названием оно
- * читается как показатель работающего устройства; ту же цифру, вместе со всем, из чего
- * она сложилась, показывает вкладка «Статистика», которая в архиве никуда не делась.
+ * сейчас», а в архиве не происходит ничего. «Яиц в работе» к тому же нулевое по
+ * построению — архив прерывает все идущие закладки (`StartIntent.SetIncubatorHidden`), —
+ * и «0 · Яиц в работе» рассказывало бы про архив, а не про этот инкубатор. «Выведено» и
+ * «Эффективность» — настоящие итоги, но под названием они читаются как показатели
+ * работающего устройства; те же цифры, вместе со всем, из чего они сложились, показывает
+ * вкладка «Статистика», которая в архиве никуда не делась.
  */
 @Composable
 private fun IncubatorHeader(
@@ -913,24 +924,11 @@ private fun IncubatorHeader(
             }
         }
 
-        // Между кнопкой «Все инкубаторы» и названием нет ни отступа, ни верхнего
-        // свинца первой строки, и оба убраны по одной причине: пустота там уже есть,
-        // и не одна. Кнопка возврата живёт в ряду высотой 48 dp — обязательный размер
-        // цели нажатия, — тогда как сама надпись занимает 21, так что под ней лежит
-        // больше десятка точек воздуха; поверх них ложились ещё 4 dp отступа и верхний
-        // свинец 30/37.5 названия. Три слоя разводили строку и заголовок настолько, что
-        // они читались как части разных экранов. Срезан только верх **первой** строки
-        // ([LineHeightStyle.Trim.FirstLineTop]): межстрочный интервал внутри названия и
-        // просвет до строки модели остаются макетными.
-        //
-        // Уменьшать сам ряд нельзя: 48 dp — это то, во что попадает палец, а не то, как
-        // выглядит иконка.
-        // Название и строка модели держатся в одну строку каждое, а не растут вниз:
-        // шапка стоит над всем экраном, и «Инкубатор в летней кухне у бабушки» на двух
-        // строках отодвигал бы цифры и вкладки ровно настолько, насколько длинное имя
-        // человек себе придумал. Обрезанное договаривает подсказка по нажатию
-        // ([TruncatedText]) — то же решение и по той же причине, что на карточке
-        // инкубатора и в плитках с суммами.
+        // Между «Все инкубаторы» и названием нет отступа, и верхний свинец первой строки
+        // срезан ([LineHeightStyle.Trim.FirstLineTop]): воздух уже даёт ряд кнопки высотой
+        // 48 dp — размер цели нажатия, уменьшать который нельзя.
+        // Название и модель — в одну строку каждое: шапка стоит над всем экраном, и
+        // длинное имя отодвигало бы цифры и вкладки. Обрезанное договаривает подсказка.
         TruncatedText(
             text = incubator?.name.orEmpty(),
             style = DesignType.HeaderTitle.copy(
@@ -964,20 +962,10 @@ private fun IncubatorHeader(
         ) {
             Column {
                 Spacer(Modifier.height(20.dp))
-                // Ряд из трёх равных долей, а не `FlowRow`: показатели читаются как одна
-                // сводка и сравниваются друг с другом, а перенос третьего под первый
-                // рвал эту строку надвое и делал «Выведено» подписью к «Активным
-                // закладкам». Доли равные, потому что колонки в макете стоят ровно —
-                // и потому что ширина по содержимому отдала бы её подписям: «Активных
-                // закладок» шире любого числа под ним, так что самый длинный показатель
-                // сжимался бы в пользу самого длинного слова.
-                //
-                // Ряд фиксирован, так что уместить три колонки в ширину экрана обязан он
-                // сам, и делает это тем же способом, каким шапка обходится с названием:
-                // число — одна строка с многоточием и подсказкой ([HeaderStat]), подпись
-                // переносится. Крупный системный шрифт — та самая цена: при 200 % от
-                // «Активных закладок» остаётся два слова в столбик, а семизначное число
-                // договаривает нажатие.
+                // Три равные доли, а не `FlowRow`: показатели читаются одной сводкой, и
+                // перенос третьего под первый делал бы его подписью к первому. Ширина по
+                // содержимому отдала бы место подписям, а не числам. Уместиться ряд
+                // обязан сам: число — одна строка с подсказкой, подпись переносится.
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.Top,
@@ -985,11 +973,6 @@ private fun IncubatorHeader(
                     // Пока база не ответила, в шапке стоят прочерки: ноль здесь — это
                     // утверждение о работающем инкубаторе, и притом самым крупным шрифтом
                     // на экране.
-                    HeaderStat(
-                        statValue(uiState.loading, uiState.activeCount),
-                        "Активных закладок",
-                        Modifier.weight(1f),
-                    )
                     HeaderStat(
                         statValue(uiState.loading, uiState.eggsInWork),
                         "Яиц в работе",
@@ -1000,6 +983,16 @@ private fun IncubatorHeader(
                         "Выведено",
                         Modifier.weight(1f),
                     )
+                    // Эффективность — то же `hatchRate`, что печатает вкладка «Статистика»
+                    // (процент вывода по завершённым закладкам), а не свой счёт: два числа
+                    // об одном и том же разошлись бы при первой правке формулы. Пока
+                    // завершённых нет, процента нет — прочерк, а не «0%».
+                    HeaderStat(
+                        if (uiState.loading) "—"
+                        else uiState.stats.hatchRate?.let { "$it%" } ?: "—",
+                        "Эффективность",
+                        Modifier.weight(1f),
+                    )
                 }
             }
         }
@@ -1007,19 +1000,11 @@ private fun IncubatorHeader(
 }
 
 /**
- * Одна цифра шапки с подписью под ней. Свою ширину получает снаружи — треть ряда.
+ * Одна цифра шапки с подписью под ней; ширину получает снаружи — треть ряда.
  *
- * **Цифра живёт в одну строку и целиком показывает себя в подсказке** ([TruncatedText]),
- * по тому же правилу, что название инкубатора над ней и суммы в плитках «Финансов».
- * Иначе она ломалась бы пополам внутри своей доли — самым крупным шрифтом на экране, —
- * и уводила бы подпись вниз относительно двух соседних. Многоточие стоит ровно столько,
- * сколько стоят младшие разряды, и договаривает их нажатие.
- *
- * **Подпись, наоборот, переносится**: это три слова, написанные приложением, а не
- * человеком, и «Активных закладок» в двух строках читается целиком, тогда как
- * «Активных зак…» не читается никак — и стояло бы так на каждом инкубаторе, а не только
- * у хозяйства с семизначным выводом. Второй строкой ряд подрастает весь сразу, ровно, а
- * не одной колонкой. Подсказки у неё нет: она всегда видна целиком.
+ * Цифра — в одну строку, обрезанная показывает себя в подсказке ([TruncatedText]):
+ * многоточие съедает лишь младшие разряды. Подпись, наоборот, переносится — это слова
+ * приложения, и в двух строках они читаются целиком, а обрезанные не читаются никак.
  */
 @Composable
 private fun HeaderStat(value: String, label: String, modifier: Modifier = Modifier) {
@@ -1115,20 +1100,30 @@ private fun BatchesTab(
     // Фильтр держим индексом: `rememberSaveable` кладёт значение в `Bundle`, а enum
     // туда напрямую не ложится.
     var filterIndex by rememberSaveable { mutableIntStateOf(0) }
+    // Архив — не пункт списка статусов, а отдельная кнопка рядом с ним: статус говорит,
+    // чем закладка кончилась, архив — где лежит карточка. Статусный фильтр работает и
+    // внутри архива: там тоже есть что делить на «Завершённые» и «Не завершённые».
+    var archiveRequested by rememberSaveable { mutableStateOf(false) }
 
-    // Выбранный фильтр может исчезнуть под ногами — последнюю закладку вернули из
-    // архива или завершили, — и тогда список молча показывает «Все».
+    // Архив может опустеть под ногами — последнюю закладку вернули в список, — и тогда
+    // экран молча возвращается к основному списку.
+    val showArchive = archiveRequested && groups.archive.all.isNotEmpty()
+    val scope = if (showArchive) groups.archive else groups.main
+
+    // Выбранный фильтр тоже может исчезнуть — последнюю закладку категории завершили или
+    // убрали, — и тогда список молча показывает «Все».
     val selected = BatchFilter.entries[filterIndex]
-        .takeIf { chosen -> groups.showFilters && groups.filters.any { it.first == chosen } }
+        .takeIf { chosen -> groups.showFilters && scope.filters.any { it.first == chosen } }
         ?: BatchFilter.All
-    // И сам выбор при этом сбрасывается, а не только показ. Иначе индекс дожидается,
-    // пока фильтр появится снова, и экран сам прыгает в архив в ответ на «Убрать в
-    // архив» — сразу после того, как оттуда достали последнюю закладку.
-    LaunchedEffect(selected) {
+    // И сам выбор при этом сбрасывается, а не только показ. Иначе состояние дожидается,
+    // пока категория появится снова, и экран сам прыгает в неё — например, в архив в
+    // ответ на «Убрать в архив» сразу после того, как оттуда достали последнюю закладку.
+    LaunchedEffect(selected, showArchive) {
         if (selected.ordinal != filterIndex) filterIndex = selected.ordinal
+        if (archiveRequested != showArchive) archiveRequested = showArchive
     }
 
-    val shown = groups.listFor(selected, uiState.batches)
+    val shown = scope.listFor(selected)
 
     // Ряд фильтров прячется при листании вниз и возвращается, стоит потянуть вверх, —
     // на экран садится ещё одна карточка, а фильтр остаётся в одном движении от пальца.
@@ -1160,14 +1155,10 @@ private fun BatchesTab(
     }
     val chipsVisible = groups.showFilters && (!chipsHidden || atTop)
 
-    // Видна ли сейчас пунктирная кнопка. Она остаётся на своём месте по макету — под
-    // списком, внутри прокрутки, — а когда закладок столько, что она уехала за нижний
-    // край, вместо неё всплывает мини-кнопка. Ответ даёт сам список: у ленивого списка
-    // элемент за экраном не только не виден, но и не построен, так что искать его надо
-    // среди видимых, по ключу. Прежняя проверка через `onGloballyPositioned` работала
-    // лишь потому, что кнопка строилась всегда, — здесь ей нечего было бы измерять.
-    // Пустой `layoutInfo` — это первый кадр, до измерения: считаем кнопку видимой, чтобы
-    // мини-кнопка не мигнула поверх пустого экрана.
+    // Видна ли пунктирная кнопка под списком; уехала за край — всплывает мини-кнопка.
+    // Элемент ленивого списка за экраном не построен, поэтому ищем его по ключу среди
+    // видимых. Пустой `layoutInfo` — первый кадр до измерения: кнопка считается видимой,
+    // чтобы мини-кнопка не мигнула поверх пустого экрана.
     val addButtonVisible by remember {
         derivedStateOf {
             val items = listState.layoutInfo.visibleItemsInfo
@@ -1175,13 +1166,35 @@ private fun BatchesTab(
         }
     }
 
-    // Смена фильтра возвращает список к началу. Ленивый список помнит своё место по
-    // номеру элемента, а не по пикселям, и короткий результат он показывал бы с того же
-    // места: переключение на «Архив» с одной закладкой в нём открывало пустой экран —
-    // карточка оставалась выше верхнего края. У прежней колонки этого не было видно
-    // только потому, что её прокрутка сама упиралась в конец укоротившегося содержимого.
-    LaunchedEffect(selected) {
+    // Смена фильтра возвращает список к началу: ленивый список помнит место по номеру
+    // элемента, и короткий результат открывался бы пустым экраном — карточка выше края.
+    LaunchedEffect(selected, showArchive) {
         listState.scrollToItem(0)
+    }
+
+    // Новый список проявляется, а не подменяется в один кадр, — и по движению видно, что
+    // сменилось. Вход в архив и выход из него — смена места, поэтому список въезжает
+    // сбоку: архив справа, основной слева. Смена статуса — тот же список, только уже, и
+    // он лишь чуть поднимается снизу. Если в одном кадре сменилось и то и другое (архив
+    // открыли, и выбранный статус там пропал), это вход в архив.
+    // Анимируется весь список одним слоем, а не каждая карточка: у ленивого списка
+    // уходящие элементы продолжали бы жить в композиции рядом с пришедшими, и один
+    // `BannerAdView` рекламного места оказался бы нужен двум карточкам сразу.
+    val listSwitch = remember { Animatable(1f) }
+    var lastArchive by remember { mutableStateOf(showArchive) }
+    var lastFilter by remember { mutableStateOf(selected) }
+    var switchKind by remember { mutableStateOf(ListSwitch.Filter) }
+    LaunchedEffect(selected, showArchive) {
+        if (lastArchive == showArchive && lastFilter == selected) return@LaunchedEffect
+        switchKind = when {
+            lastArchive == showArchive -> ListSwitch.Filter
+            showArchive -> ListSwitch.IntoArchive
+            else -> ListSwitch.OutOfArchive
+        }
+        lastArchive = showArchive
+        lastFilter = selected
+        listSwitch.snapTo(0f)
+        listSwitch.animateTo(1f, tween(ListSwitchMillis, easing = FastOutSlowInEasing))
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -1190,18 +1203,19 @@ private fun BatchesTab(
                 .fillMaxSize()
                 .nestedScroll(chipsScroll)
         ) {
-            // Ряд фильтров стоит над списком, а не в нём: раньше вход в архив был
-            // строкой под списком, и на инкубаторе с десятком закладок до него надо
-            // было догадаться долистать. Здесь он виден сразу.
+            // Ряд фильтров — над списком, а не под ним: вход в архив виден сразу.
             AnimatedVisibility(
                 visible = chipsVisible,
                 enter = expandVertically(tween(ChipsSlideMillis)) + fadeIn(tween(ChipsSlideMillis)),
                 exit = shrinkVertically(tween(ChipsSlideMillis)) + fadeOut(tween(ChipsSlideMillis)),
             ) {
                 BatchFilterRow(
-                    filters = groups.filters,
+                    filters = scope.filters,
                     selected = selected,
                     onSelect = { filterIndex = it.ordinal },
+                    archiveCount = groups.archive.all.size,
+                    archiveShown = showArchive,
+                    onToggleArchive = { archiveRequested = !showArchive },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = ScreenPadding)
@@ -1209,15 +1223,23 @@ private fun BatchesTab(
                 )
             }
 
-            // Список ленивый, и это не оптимизация впрок. Карточка закладки — это
-            // `FlowRow` с кольцом прогресса и собственным меню, а каждое третье место в
-            // списке рекламное, то есть живой `BannerAdView` с `WebView` внутри. Обычная
-            // прокручиваемая колонка строила у инкубатора на два десятка закладок их все
-            // разом вместе со всеми пятью объявлениями — при том, что на экран помещается
-            // три карточки.
+            // Список ленивый не впрок: каждое третье место — живой `BannerAdView` с
+            // `WebView`, и обычная колонка строила бы все карточки и объявления разом.
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    // Значение анимации читается внутри слоя, а не в композиции: кадры
+                    // въезда не перестраивают вкладку.
+                    .graphicsLayer {
+                        val rest = 1f - listSwitch.value
+                        alpha = listSwitch.value
+                        when (switchKind) {
+                            ListSwitch.IntoArchive -> translationX = rest * ArchiveSlideDistance.toPx()
+                            ListSwitch.OutOfArchive -> translationX = -rest * ArchiveSlideDistance.toPx()
+                            ListSwitch.Filter -> translationY = rest * FilterRiseDistance.toPx()
+                        }
+                    },
                 contentPadding = PaddingValues(
                     start = ScreenPadding,
                     end = ScreenPadding,
@@ -1236,7 +1258,7 @@ private fun BatchesTab(
                 if (shown.isEmpty()) {
                     item(key = "empty") {
                         Text(
-                            text = emptyBatchesText(selected),
+                            text = emptyBatchesText(selected, showArchive),
                             style = DesignType.Placeholder,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -1338,13 +1360,10 @@ private fun BatchesTab(
             visible = !addButtonVisible && !readOnly,
             enter = fadeIn(tween(FabFadeMillis)) + scaleIn(tween(FabFadeMillis), initialScale = 0.7f),
             exit = fadeOut(tween(FabFadeMillis)) + scaleOut(tween(FabFadeMillis), targetScale = 0.7f),
-            // Пока идёт таймер проветривания, слева в той же линии стоит его кольцо
-            // (`AiringTimerFab`), и широкая кнопка посередине легла бы на него на узком
-            // экране — на это время она уходит к правому краю, как мини-«+».
-            // Лист с вкладками нарисован на `SheetOverlap` выше, чем размечен (см. `offset`
-            // над переключателем), и кнопка внутри него поднималась вместе с ним: её 20 dp
-            // от низа на экране были 37. Обратный сдвиг ставит её на те же 20 dp над
-            // системной панелью, что «+ Инкубатор» и кольцо таймера слева.
+            // Пока идёт таймер проветривания, слева стоит его кольцо (`AiringTimerFab`), и
+            // широкая кнопка посередине легла бы на него — она уходит к правому краю.
+            // Лист с вкладками нарисован на `SheetOverlap` выше, чем размечен; обратный
+            // сдвиг ставит кнопку на те же 20 dp над системной панелью, что и кольцо.
             modifier = if (onAddMeasurement != null && !airingTimerActive()) {
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -1447,54 +1466,67 @@ private const val AddButtonKey = "add-batch"
  * Считается один раз на ответ базы (`remember` во вкладке), а не на кадр прокрутки.
  */
 private class BatchGroups(
+    /** Основной список — всё, что не убрано в архив. */
+    val main: StatusGroups,
+    /** Архив: те же статусы, но среди закладок с `hidden`. */
+    val archive: StatusGroups,
+    val showFilters: Boolean,
+)
+
+/** Одна область списка (основной или архив), разбитая по статусам. */
+private class StatusGroups(
+    val all: List<Batch>,
     val active: List<Batch>,
     val hatched: List<Batch>,
     val stopped: List<Batch>,
-    val archived: List<Batch>,
+    /** Пункты выпадающего списка: «Все» и только непустые статусы, со счётчиками. */
     val filters: List<Pair<BatchFilter, Int>>,
-    val showFilters: Boolean,
 ) {
-    fun listFor(filter: BatchFilter, all: List<Batch>): List<Batch> = when (filter) {
+    /** Сколько статусов из трёх в этой области непусты. */
+    val statusCount: Int get() = listOf(active, hatched, stopped).count { it.isNotEmpty() }
+
+    fun listFor(filter: BatchFilter): List<Batch> = when (filter) {
         BatchFilter.All -> all
         BatchFilter.Active -> active
         BatchFilter.Finished -> hatched
         BatchFilter.Stopped -> stopped
-        BatchFilter.Archived -> archived
     }
 }
 
-private fun batchGroups(batches: List<Batch>, archived: List<Batch>): BatchGroups {
-    // Три первых чипа — разбиение списка, а не пересекающиеся выборки: «Завершённые»
-    // больше не включают прерванные, иначе счётчики в чипах не сходились бы с «Все» и
-    // одна и та же закладка считалась бы дважды.
+private fun statusGroups(batches: List<Batch>): StatusGroups {
+    // Статусы — разбиение списка, а не пересекающиеся выборки: «Завершённые» не включают
+    // прерванные, иначе счётчики в списке не сходились бы с «Все» и одна и та же закладка
+    // считалась бы дважды.
     val byStatus = batches.groupBy { it.status }
     val active = byStatus[BatchStatus.Active].orEmpty()
     val hatched = byStatus[BatchStatus.Hatched].orEmpty()
     val stopped = byStatus[BatchStatus.Stopped].orEmpty()
-
-    // Чипы показываем, только когда есть что разделять: с одной закладкой в списке
-    // фильтр «Все (1)» ничего не сообщает. Но если в архиве что-то лежит, ряд нужен
-    // всегда — иначе спрятанные закладки снова негде было бы найти, а при инкубаторе,
-    // где убрано вообще всё, экран выглядел бы пустым.
-    val filters = buildList {
-        add(BatchFilter.All to batches.size)
-        if (active.isNotEmpty()) add(BatchFilter.Active to active.size)
-        if (hatched.isNotEmpty()) add(BatchFilter.Finished to hatched.size)
-        if (stopped.isNotEmpty()) add(BatchFilter.Stopped to stopped.size)
-        if (archived.isNotEmpty()) add(BatchFilter.Archived to archived.size)
-    }
-    // «Есть что разделять» — это две непустых категории из трёх, а не «идущие и
-    // завершённые»: инкубатор, где одна закладка идёт, а другую прервали, разделять
-    // тоже есть на что.
-    val statusGroups = listOf(active, hatched, stopped).count { it.isNotEmpty() }
-
-    return BatchGroups(
+    return StatusGroups(
+        all = batches,
         active = active,
         hatched = hatched,
         stopped = stopped,
-        archived = archived,
-        filters = filters,
-        showFilters = archived.isNotEmpty() || statusGroups > 1,
+        filters = buildList {
+            add(BatchFilter.All to batches.size)
+            if (active.isNotEmpty()) add(BatchFilter.Active to active.size)
+            if (hatched.isNotEmpty()) add(BatchFilter.Finished to hatched.size)
+            if (stopped.isNotEmpty()) add(BatchFilter.Stopped to stopped.size)
+        },
+    )
+}
+
+private fun batchGroups(batches: List<Batch>, archived: List<Batch>): BatchGroups {
+    val main = statusGroups(batches)
+    // Ряд показываем, только когда есть что разделять: с одной закладкой в списке
+    // фильтр «Все (1)» ничего не сообщает. «Есть что разделять» — это две непустых
+    // категории из трёх, а не «идущие и завершённые»: инкубатор, где одна закладка идёт,
+    // а другую прервали, разделять тоже есть на что. Но если в архиве что-то лежит, ряд
+    // нужен всегда — иначе спрятанные закладки негде было бы найти, а при инкубаторе,
+    // где убрано вообще всё, экран выглядел бы пустым.
+    return BatchGroups(
+        main = main,
+        archive = statusGroups(archived),
+        showFilters = archived.isNotEmpty() || main.statusCount > 1,
     )
 }
 
@@ -1506,7 +1538,11 @@ private fun batchGroups(batches: List<Batch>, archived: List<Batch>): BatchGroup
  * и второй вход в то же решение развёл бы два места, где инкубатор «достают».
  */
 @Composable
-private fun ReadOnlyNotice(modifier: Modifier = Modifier) {
+private fun ReadOnlyNotice(
+    modifier: Modifier = Modifier,
+    text: String = "Инкубатор в архиве — закладки только для просмотра. " +
+        "Верните его в список на главном экране, чтобы менять их снова.",
+) {
     val shape = RoundedCornerShape(16.dp)
     Row(
         modifier = modifier
@@ -1524,12 +1560,26 @@ private fun ReadOnlyNotice(modifier: Modifier = Modifier) {
         )
         Spacer(Modifier.size(10.dp))
         Text(
-            text = "Инкубатор в архиве — закладки только для просмотра. " +
-                "Верните его в список на главном экране, чтобы менять их снова.",
+            text = text,
             style = DesignType.Caption,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/**
+ * Та же плашка над «Статистикой» и «Финансами» архивного инкубатора. Цифры на вкладках
+ * по-прежнему считаются по его закладкам, а в общую «Аналитику» хозяйства они уже не
+ * входят — и смотрящий на эти цифры должен знать, что они больше никуда не идут.
+ */
+@Composable
+private fun ArchivedTotalsNotice() {
+    ReadOnlyNotice(
+        modifier = Modifier.padding(bottom = 16.dp),
+        text = "Инкубатор в архиве, и его закладки не учитываются в общей статистике " +
+            "и финансах хозяйства — как будто их не было. Чтобы они снова вошли " +
+            "в итоги, верните инкубатор в список на главном экране.",
+    )
 }
 
 /**
@@ -1554,58 +1604,138 @@ private fun AddBatchFab(onClick: () -> Unit) {
 }
 
 /**
- * Чем список закладок можно ограничить. Порядок — порядок чипов на экране, и он же
- * порядок жизни закладки: идёт → дошла до срока → сорвалась → убрана с глаз.
+ * Чем список закладок можно ограничить. Порядок — порядок пунктов в выпадающем списке,
+ * и он же порядок жизни закладки: идёт → дошла до срока → сорвалась.
  *
- * Первые три — ровно [BatchStatus], четвёртый ни одному статусу не соответствует:
- * «Архив» это `hidden`, отдельное от того, чем закладка кончилась. Поэтому фильтр и
- * остался своим перечислением, а не стал `BatchStatus?`.
+ * Это ровно [BatchStatus] плюс «Все». Архив сюда не входит: `hidden` — не статус, а
+ * место хранения карточки, и у него своя кнопка рядом со списком ([ArchiveToggleButton]).
  */
 private enum class BatchFilter(val title: String) {
     All("Все"),
     Active("Инкубация"),
     Finished("Завершённые"),
     Stopped("Не завершённые"),
-    Archived("Архив"),
 }
 
 /** Что написать вместо списка, когда выбранный фильтр ничего не нашёл. */
-private fun emptyBatchesText(filter: BatchFilter): String = when (filter) {
-    BatchFilter.All -> "В этом инкубаторе пока нет закладок."
+private fun emptyBatchesText(filter: BatchFilter, archive: Boolean): String = when (filter) {
+    BatchFilter.All -> if (archive) "В архиве пусто." else "В этом инкубаторе пока нет закладок."
     BatchFilter.Active -> "Сейчас в инкубации нет ни одной закладки."
     BatchFilter.Finished -> "Завершённых закладок пока нет."
     BatchFilter.Stopped -> "Ни одной прерванной закладки — и хорошо."
-    BatchFilter.Archived -> "В архиве пусто."
 }
 
 /**
- * Ряд фильтров над списком: «Все · Инкубация · Завершённые · Не завершённые · Архив».
+ * Ряд фильтров над списком: выпадающий список статусов и кнопка архива справа от него.
  *
- * `FlowRow`, а не прокручиваемая строка: пять чипов со счётчиками на узкий экран в
- * одну строку не встают, а уехавший за правый край «Архив» — ровно та беда, ради
- * которой ряд и появился. Перенос на вторую строку показывает все сразу.
+ * Выпадающий список, а не ряд чипов: пять чипов со счётчиками на узкий экран в одну
+ * строку не вставали и переносились на вторую, отъедая у списка высоту. Список
+ * занимает одну строку при любом числе статусов. Архив стоит отдельной кнопкой, потому
+ * что это не ещё один статус, а другое место, — и виден сразу, без раскрытия списка.
  */
 @Composable
 private fun BatchFilterRow(
     filters: List<Pair<BatchFilter, Int>>,
     selected: BatchFilter,
     onSelect: (BatchFilter) -> Unit,
+    /** Сколько закладок в архиве; `0` — кнопки нет совсем. */
+    archiveCount: Int,
+    archiveShown: Boolean,
+    onToggleArchive: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    FlowRow(
+    val counts = filters.toMap()
+    Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        filters.forEach { (filter, count) ->
-            ChoiceChip(
-                text = "${filter.title} ($count)",
-                selected = filter == selected,
-                // Иконка только у архива: остальные — части одного списка, а он
-                // отдельное место, и коробку узнают быстрее, чем читают слово.
-                icon = R.drawable.baseline_archive_24.takeIf { filter == BatchFilter.Archived },
-                onClick = { onSelect(filter) },
+        SheetDropdownField(
+            options = filters.map { it.first },
+            selected = selected,
+            label = { filter ->
+                val title = if (filter == BatchFilter.All && archiveShown) "Весь архив" else filter.title
+                "$title (${counts[filter] ?: 0})"
+            },
+            onSelect = onSelect,
+            modifier = Modifier.weight(1f),
+        )
+        // Кнопка появляется с первой убранной закладкой и уходит с последней, обе —
+        // на глазах у человека, поэтому выдвигается, а не возникает. Зазор живёт внутри
+        // анимации: снаружи он стоял бы и при спрятанной кнопке, и поле не доходило бы
+        // до края. Число в ней запоминается, чтобы уходящая кнопка не показывала «0», —
+        // простым держателем, а не `State`: композиция не пишет состояние, которое читает.
+        val heldCount = remember { intArrayOf(archiveCount) }
+        if (archiveCount > 0) heldCount[0] = archiveCount
+        AnimatedVisibility(
+            visible = archiveCount > 0,
+            enter = expandHorizontally(tween(ChipsSlideMillis), expandFrom = Alignment.Start) +
+                fadeIn(tween(ChipsSlideMillis)),
+            exit = shrinkHorizontally(tween(ChipsSlideMillis), shrinkTowards = Alignment.Start) +
+                fadeOut(tween(ChipsSlideMillis)),
+        ) {
+            ArchiveToggleButton(
+                count = heldCount[0],
+                selected = archiveShown,
+                onClick = onToggleArchive,
+                modifier = Modifier.padding(start = 8.dp),
             )
+        }
+    }
+}
+
+/**
+ * Кнопка «Архив» рядом со списком статусов: включает и выключает показ закладок,
+ * убранных в архив.
+ *
+ * Высотой и скруглением — ровно поле слева ([FieldHeight], [FieldRadius]), чтобы ряд
+ * читался одной строкой. Включённая залита акцентом, как выбранный чип: так видно, что
+ * список под ней — архив, а не основной.
+ */
+@Composable
+private fun ArchiveToggleButton(
+    count: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val content by animateColorAsState(
+        if (selected) DesignPalette.OnAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+        tween(ChipsSlideMillis),
+        label = "archiveContent",
+    )
+    val fill by animateColorAsState(
+        if (selected) DesignPalette.Accent else DesignPalette.Surface,
+        tween(ChipsSlideMillis),
+        label = "archiveFill",
+    )
+    val border by animateColorAsState(
+        if (selected) DesignPalette.Accent else DesignPalette.CardBorder,
+        tween(ChipsSlideMillis),
+        label = "archiveBorder",
+    )
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(FieldRadius),
+        color = fill,
+        contentColor = content,
+        border = BorderStroke(0.8.dp, border),
+        modifier = modifier
+            .height(FieldHeight)
+            .semantics {
+                stateDescription = if (selected) "архив показан" else "архив скрыт"
+            },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.baseline_archive_24),
+                contentDescription = "Архив",
+                modifier = Modifier.size(18.dp),
+            )
+            Text(text = formatCount(count), style = DesignType.FieldValue, maxLines = 1)
         }
     }
 }
@@ -1637,10 +1767,12 @@ private fun BatchCard(
     readOnly: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    // Сегодняшний день — часть ключа: `batchProgress` считает «День N/M» и «через N дн.»
-    // от текущей даты, и без него приложение, оставленное открытым через полночь,
-    // показывало бы вчерашний день до следующего ответа базы.
-    val progress = remember(batch, catalog, today()) { batchProgress(batch, catalog) }
+    // Текущая минута — часть ключа: `batchProgress` считает «День N/M» от часа и минуты
+    // закладки, а «через N дн.» — от сегодняшней даты, и без неё экран, оставленный
+    // открытым, показывал бы прошлый день до следующего ответа базы.
+    val progress = remember(batch, catalog, System.currentTimeMillis() / 60_000L) {
+        batchProgress(batch, catalog)
+    }
     val status = batch.status
     val isFinished = status != BatchStatus.Active
 
@@ -1679,7 +1811,7 @@ private fun BatchCard(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     ProgressRing(
                         fraction = progress.fraction,
-                        emoji = speciesEmoji(batch.type),
+                        species = batch.type,
                         color = progressRingColor(status = status, archived = batch.hidden),
                     )
                     if (progress.dayLabel.isNotEmpty()) {
@@ -2132,7 +2264,7 @@ private fun IconLabel(
 }
 
 /**
- * Кольцо прогресса инкубации с эмодзи вида птицы по центру (узел 5:1023).
+ * Кольцо прогресса инкубации со значком вида птицы по центру (узел 5:1023).
  *
  * Диаметр — параметр, потому что кольцо рисует не только карточка закладки: сводка
  * в шторке закладки ставит его же, но меньше. Обводка и кегль эмодзи считаются от
@@ -2145,7 +2277,7 @@ private fun IconLabel(
 @Composable
 internal fun ProgressRing(
     fraction: Float,
-    emoji: String,
+    species: String,
     diameter: Dp = 64.dp,
     color: Color = DesignPalette.Accent,
 ) {
@@ -2185,7 +2317,7 @@ internal fun ProgressRing(
                     }
                 }
         )
-        Text(text = emoji, fontSize = (diameter.value * 22f / 64f).sp)
+        SpeciesGlyph(bird = species, fontSize = (diameter.value * 22f / 64f).sp)
     }
 }
 
@@ -2353,20 +2485,23 @@ private fun batchProgress(batch: Batch, catalog: SpeciesCatalog): BatchProgress 
 
     if (start == null) return BatchProgress(0f, "", "", null)
 
-    val elapsed = daysBetween(start, today())
-    val day = (elapsed + 1).coerceAtLeast(1)
+    // День — от часа закладки, той же функцией, что в шторке (`incubationDay`).
+    val day = incubationDay(batchStartMoment(batch), null, Date())
     if (total == null) {
         return BatchProgress(0f, "День $day", "", null)
     }
 
     val hatchDate = start.plusDays(total)
-    val left = total - elapsed
+    // «Через N дн.» — про число вывода, и считается датами: вывод 30-го, сегодня 29-е —
+    // «завтра», в каком бы часу ни смотрели.
+    val left = daysBetween(today(), hatchDate)
     return BatchProgress(
         fraction = if (total > 0) day.coerceAtMost(total) / total.toFloat() else 0f,
         dayLabel = "День ${day.coerceAtMost(total)}/$total",
         hatchLabel = "Вывод ${shortDate(hatchDate)}",
         trailing = when {
-            left > 0 -> "через $left дн."
+            left > 1 -> "через $left дн."
+            left == 1 -> "завтра"
             left == 0 -> "сегодня"
             else -> "срок вышел"
         },

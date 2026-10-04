@@ -27,28 +27,23 @@ import kotlin.math.roundToInt
 /*
  * Полоса вместимости — одна на два места: карточку инкубатора на стартовом экране и
  * форму новой закладки, где под «Количеством яиц» она показывает, сколько в устройстве
- * станет с этой закладкой. Одна функция, а не две похожие: число, процент, красный
- * перебора и заглушка «укажите вместимость» должны читаться одинаково там и там —
+ * станет с этой закладкой. Одна функция, а не две похожие: число, процент и красный
+ * перебора должны читаться одинаково там и там —
  * иначе форма обещала бы одно, а карточка после сохранения показывала бы другое.
  */
 
 /**
- * Яйца против вместимости инкубатора.
+ * Яйца против вместимости инкубатора. Вместимость может быть нулём (миграция с первой версии,
+ * необязательное поле): тогда остаётся «N яиц в инкубации», без процента и полосы.
  *
- * Вместимость обязательна, но у инкубатора, созданного при миграции с первой версии,
- * её взять было неоткуда — там ноль. В этом случае вместо процента показываем просьбу
- * заполнить: полоса без вместимости бессмысленна.
- *
- * **У инкубатора в архиве остаётся одна вместимость — «22 места».** «0 / 22», процент и
- * полоса отвечают на вопрос «насколько он сейчас занят», а выведенное из работы
- * устройство не занято ничем и не будет: архив прерывает все идущие закладки. Пустая
- * полоса и «0%» под названием читались бы как простаивающий инкубатор, то есть как
- * упрёк, — тогда как вместимость это просто свойство устройства, и она никуда не делась.
- * Ровно то же решение, что и с цифрами в шапке экрана инкубатора.
+ * **У инкубатора в архиве остаётся одна вместимость — «22 места».** Архив прерывает все идущие
+ * закладки, и «0 / 22» с пустой полосой читалось бы как простой, то есть как упрёк. Архивный
+ * инкубатор без вместимости не рисует ничего.
  */
 @Composable
 internal fun CapacityBlock(eggs: Int, capacity: Int, archived: Boolean = false) {
     if (archived) {
+        if (capacity <= 0) return
         Row(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -60,10 +55,7 @@ internal fun CapacityBlock(eggs: Int, capacity: Int, archived: Boolean = false) 
                 modifier = Modifier.size(14.dp),
             )
             Text(
-                // Ноль вместимости — наследство первой версии схемы; просьба заполнить
-                // остаётся в силе и в архиве: карандаш в шапке инкубатора работает.
-                text = if (capacity > 0) plural(capacity, "место", "места", "мест")
-                else "вместимость не указана",
+                text = plural(capacity, "место", "места", "мест"),
                 style = DesignType.Caption,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -96,7 +88,7 @@ internal fun CapacityBlock(eggs: Int, capacity: Int, archived: Boolean = false) 
                 text = if (capacity > 0) {
                     formatCount(eggs) + " / " + plural(capacity, "место", "места", "мест")
                 } else {
-                    plural(eggs, "яйцо", "яйца", "яиц")
+                    plural(eggs, "яйцо", "яйца", "яиц") + " в инкубации"
                 },
                 style = DesignType.Caption,
                 color = if (overfilled) DesignPalette.Expense
@@ -108,12 +100,6 @@ internal fun CapacityBlock(eggs: Int, capacity: Int, archived: Boolean = false) 
                 text = "${(eggs.toFloat() / capacity * 100).roundToInt()}%",
                 style = DesignType.MonoEmphasis,
                 color = if (overfilled) DesignPalette.Expense else DesignPalette.Accent,
-            )
-        } else {
-            Text(
-                text = "укажите вместимость",
-                style = DesignType.Caption,
-                color = DesignPalette.DateEmphasis,
             )
         }
     }

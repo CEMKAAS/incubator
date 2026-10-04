@@ -12,6 +12,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -54,9 +55,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -69,29 +74,28 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import ru.zaroslikov.incubator.R
+import ru.zaroslikov.incubator.design.components.Fireworks
 import ru.zaroslikov.incubator.design.components.SlidingTab
 import ru.zaroslikov.incubator.design.components.SlidingTabSwitcher
 import ru.zaroslikov.incubator.design.components.TileRow
 import ru.zaroslikov.incubator.design.components.tileWeight
+import ru.zaroslikov.incubator.qr.QrLink
+import ru.zaroslikov.incubator.qr.appIconBitmap
+import ru.zaroslikov.incubator.qr.qrModules
+import ru.zaroslikov.incubator.ui.batch.TimerRing
 import ru.zaroslikov.incubator.ui.incubator.ProgressRing
+import ru.zaroslikov.incubator.ui.qr.QrImage
 import ru.zaroslikov.incubator.ui.start.speciesChipColor
-import ru.zaroslikov.incubator.ui.start.speciesEmoji
+import ru.zaroslikov.incubator.ui.start.SpeciesGlyph
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
 
 /*
- * Иллюстрации инструкции.
+ * Иллюстрации инструкции — сцены из тех же карточек, плашек и переключателя, что и приложение, с
+ * цветами из `DesignPalette` (перекрашиваются с темой). Числа выдуманы: это пример, не данные.
  *
- * Не картинки, а сцены, собранные из того же, из чего собрано приложение: те же
- * карточки, плашки, чипы, тот же переключатель вкладок. Нарисованная отдельно
- * иллюстрация обещала бы интерфейс, которого нет, а эти — показывают тот, что
- * будет через минуту, и перекрашиваются вместе с темой, потому что берут цвета из
- * `DesignPalette`. Числа в них выдуманы и одинаковы у всех — это не данные, а пример.
- *
- * Каждая сцена получает `active` — стоит ли её страница на месте — и с этого момента
- * проигрывает своё движение: полоса заполняется, строки появляются, палец ведёт.
- * До того сцена лежит в исходном состоянии, чтобы движение досталось глазу, а не
- * закадровой сборке.
+ * Каждая сцена получает `active` — стоит ли её страница на месте — и с этого момента проигрывает
+ * движение; до того лежит в исходном состоянии.
  */
 
 /** Высота сцены — на узком экране (360 dp минус поля) она выходит почти квадратной. */
@@ -248,7 +252,7 @@ private fun BoxScope.OrbitBird(bird: String, x: Dp, y: Dp, phase: () -> Float, f
             .background(speciesChipColor(bird)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = speciesEmoji(bird), fontSize = 20.sp)
+        SpeciesGlyph(bird = bird, fontSize = 20.sp)
     }
 }
 
@@ -293,7 +297,7 @@ internal fun IncubatorScene(active: Boolean) {
                                 .background(speciesChipColor(bird)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(text = speciesEmoji(bird), fontSize = 14.sp)
+                            SpeciesGlyph(bird = bird, fontSize = 14.sp)
                         }
                     }
                 }
@@ -428,7 +432,7 @@ private fun RowScope.SpeciesTile(bird: String, days: String, selected: Boolean) 
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(text = speciesEmoji(bird), fontSize = 18.sp)
+        SpeciesGlyph(bird = bird, fontSize = 18.sp)
         Text(
             text = bird,
             style = DesignType.Micro,
@@ -560,21 +564,12 @@ private const val DemoPauseMillis = 1500L
 private const val DemoSwipeMillis = 700
 
 /**
- * Экран инкубатора в миниатюре: настоящий переключатель над настоящим пейджером — то
- * есть не изображение жеста, а сам жест, и не рассказ о трёх вкладках, а они сами.
+ * Экран инкубатора в миниатюре: настоящий переключатель над настоящим пейджером, три карточки
+ * показывают, что лежит на каждой вкладке.
  *
- * Три карточки под переключателем показывают, что на каждой вкладке лежит — идущая
- * закладка, вывод, баланс, — потому что «Статистика» и «Финансы» словами не отличаются
- * ничем, а увиденные один раз отличаются навсегда.
- *
- * Сцена показывает свайп сама: палец проводит по карточке, страница едет за ним,
- * «таблетка» — за страницей, и так по кругу с паузами. Как только человек проведёт
- * пальцем или нажмёт вкладку сам, показ останавливается насовсем (`tried` в
- * `rememberSaveable`) — дальше он и так знает; подсказка под карточкой меняется на
- * подтверждение, и она же — единственное, что говорит про остальные экраны, с тех пор
- * как их список из-под страницы убран. Вложенный пейджер отдаёт жест внешнему только на
- * своих краях, так что пролистать мимо этой страницы можно, лишь дойдя до её первой или
- * последней вкладки, — и это тоже урок, только незапланированный.
+ * Сцена сама показывает свайп, пока человек не проведёт пальцем или не нажмёт вкладку (`tried` в
+ * `rememberSaveable`); тогда подсказка меняется на подтверждение. Вложенный пейджер отдаёт жест
+ * внешнему только на своих краях.
  */
 @Composable
 internal fun TabsScene(active: Boolean) {
@@ -699,7 +694,7 @@ internal fun TabsScene(active: Boolean) {
 private fun DemoBatchCard() {
     MiniCard(Modifier.fillMaxHeight()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ProgressRing(fraction = 12f / 21f, emoji = speciesEmoji("Курицы"), diameter = 48.dp)
+            ProgressRing(fraction = 12f / 21f, species = "Курицы", diameter = 48.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -1017,5 +1012,391 @@ private fun EventRow(
                 maxLines = 1,
             )
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// 6. QR-код на инкубаторе
+// ---------------------------------------------------------------------------------
+
+/**
+ * Карточка с QR-кодом, как в шторке «QR-код», и рамка сканера поверх: линия ходит по
+ * коду, и следом снизу всплывает то, что камера по нему открывает, — «Замеры за
+ * сегодня». Код настоящий — тот же `qrModules` и тот же `QrImage`, что печатает
+ * приложение, — только ведёт на выдуманный инкубатор.
+ */
+@Composable
+internal fun QrScene(active: Boolean) {
+    val context = LocalContext.current
+    val modules = remember { qrModules(QrLink.encode(1)) }
+    val logo = remember(context.packageName) { appIconBitmap(context, 96).asImageBitmap() }
+    val card = appearFraction(active)
+    val found = appearFraction(active, delayMillis = 1500)
+
+    // Линия сканера: туда и обратно, пока страница на месте. Читается только в
+    // отрисовке — она меняется каждый кадр.
+    val scan = remember { Animatable(0f) }
+    LaunchedEffect(active) {
+        scan.snapTo(0f)
+        if (!active) return@LaunchedEffect
+        delay(500)
+        while (isActive) {
+            scan.animateTo(1f, tween(1100, easing = FastOutSlowInEasing))
+            scan.animateTo(0f, tween(1100, easing = FastOutSlowInEasing))
+        }
+    }
+    val accent = DesignPalette.Accent
+
+    Stage {
+        Column(Modifier.fillMaxSize()) {
+            MiniCard(Modifier.rise(card), padding = 12.dp) {
+                Box(
+                    Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .size(136.dp)
+                ) {
+                    QrImage(
+                        modules = modules,
+                        logo = logo,
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .fillMaxSize(),
+                    )
+                    Canvas(Modifier.matchParentSize()) {
+                        val stroke = 3.dp.toPx()
+                        val arm = 18.dp.toPx()
+                        val w = size.width
+                        val h = size.height
+                        // Четыре уголка рамки — как видоискатель сканера.
+                        listOf(
+                            Triple(Offset(0f, 0f), Offset(arm, 0f), Offset(0f, arm)),
+                            Triple(Offset(w, 0f), Offset(w - arm, 0f), Offset(w, arm)),
+                            Triple(Offset(0f, h), Offset(arm, h), Offset(0f, h - arm)),
+                            Triple(Offset(w, h), Offset(w - arm, h), Offset(w, h - arm)),
+                        ).forEach { (corner, along, down) ->
+                            drawLine(accent, corner, along, stroke, StrokeCap.Round)
+                            drawLine(accent, corner, down, stroke, StrokeCap.Round)
+                        }
+                        val inset = 8.dp.toPx()
+                        val y = inset + (h - inset * 2) * scan.value
+                        drawLine(
+                            color = accent,
+                            start = Offset(inset, y),
+                            end = Offset(w - inset, y),
+                            strokeWidth = 2.dp.toPx(),
+                            cap = StrokeCap.Round,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Блиц 72",
+                    style = DesignType.CardTitle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
+                Text(
+                    text = "Blitz · 72 места",
+                    style = DesignType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            EventRow(
+                fraction = found,
+                surface = DesignPalette.IncomeSurface,
+                icon = {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_temperature_design),
+                        contentDescription = null,
+                        tint = DesignPalette.OnAccent,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                title = "Замеры за сегодня",
+                caption = "один замер — сразу во все закладки",
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// 7. Таймер проветривания
+// ---------------------------------------------------------------------------------
+
+/** На сколько минут заведён таймер сцены и за сколько он их «проживает». */
+private const val DemoTimerMinutes = 15
+private const val DemoTimerMillis = 4200
+
+/**
+ * Карточка таймера из формы замера: кольцо отсчитывает пятнадцать минут за несколько
+ * секунд, краснеет на «Время вышло!» — и строка замера под карточкой получает то,
+ * ради чего таймер заводили: минуты, подставленные в замер. Кольцо — настоящее `TimerRing`.
+ */
+@Composable
+internal fun TimerScene(active: Boolean) {
+    val card = appearFraction(active)
+    val progress = remember { Animatable(0f) }
+    var done by remember { mutableStateOf(false) }
+    LaunchedEffect(active) {
+        done = false
+        progress.snapTo(0f)
+        if (!active) return@LaunchedEffect
+        delay(700)
+        progress.animateTo(1f, tween(DemoTimerMillis, easing = LinearEasing))
+        done = true
+    }
+    val form = appearFraction(active, delayMillis = 350)
+
+    Stage {
+        Column(Modifier.fillMaxSize()) {
+            MiniCard(Modifier.rise(card), padding = 14.dp) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (done) DemoTimerDone() else DemoTimerRunning { progress.value }
+                    Spacer(Modifier.width(14.dp))
+                    Crossfade(targetState = done, animationSpec = tween(220), label = "timerText") { over ->
+                        Column {
+                            Text(
+                                text = if (over) "Время вышло!" else "Проветривание идёт",
+                                style = DesignType.ListItemTitle,
+                                color = if (over) DesignPalette.Expense
+                                else MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = if (over) "Закройте инкубатор"
+                                else "$DemoTimerMinutes мин · закрыть в 15:26",
+                                style = DesignType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Crossfade(targetState = done, animationSpec = tween(220), label = "timerButtons") { over ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (over) {
+                            DemoTimerButton("Готово, выключить сигнал", filled = true)
+                        } else {
+                            DemoTimerButton("Завершить", filled = false)
+                            DemoTimerButton("Отменить", filled = false)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            EventRow(
+                fraction = form,
+                surface = DesignPalette.IncomeSurface,
+                icon = {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_airing_design),
+                        contentDescription = null,
+                        tint = DesignPalette.OnAccent,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                title = if (done) "Проветривание · $DemoTimerMinutes мин" else "Проветривание · — мин",
+                caption = if (done) "минуты подставлены в форму замера"
+                else "минуты подставятся в замер сами",
+            )
+        }
+    }
+}
+
+/**
+ * Идущее кольцо. Доля приходит лямбдой и читается здесь, а не в сцене: она меняется
+ * каждый кадр, и перестраиваться должно одно кольцо, а не вся страница.
+ */
+@Composable
+private fun DemoTimerRunning(progress: () -> Float) {
+    val fraction = progress()
+    val left = ((1f - fraction) * DemoTimerMinutes * 60).roundToInt()
+    TimerRing(progress = fraction, pulse = 0f) {
+        Text(
+            text = "%d:%02d".format(left / 60, left % 60),
+            style = DesignType.MonoEmphasis,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+/** Кольцо «время вышло»: полное, красное, с расходящимся ореолом. */
+@Composable
+private fun DemoTimerDone() {
+    val pulse by rememberInfiniteTransition(label = "timerPulse").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing)),
+        label = "pulse",
+    )
+    TimerRing(progress = 1f, pulse = pulse, alarm = true) {
+        Text(
+            text = "0:00",
+            style = DesignType.MonoEmphasis,
+            color = DesignPalette.Expense,
+        )
+    }
+}
+
+@Composable
+private fun RowScope.DemoTimerButton(text: String, filled: Boolean) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .height(36.dp)
+            .clip(shape)
+            .background(if (filled) DesignPalette.Accent else DesignPalette.Surface)
+            .border(
+                width = 0.8.dp,
+                color = if (filled) DesignPalette.Accent else DesignPalette.CardBorder,
+                shape = shape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = DesignType.ToggleLabel,
+            color = if (filled) DesignPalette.OnAccent else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// 8. Вывод и итоги
+// ---------------------------------------------------------------------------------
+
+/**
+ * Поздравление в миниатюре: карточка итога, над которой идёт настоящий салют
+ * (`Fireworks` из `:design`). Числа досчитываются на приход страницы; под ними — две
+ * двери, которые открываются вокруг вывода: даты в календарь и птенцы в «Моё хозяйство».
+ *
+ * Салют рисуется поверх карточки, а не за ней: сцена невелика, полосы над и под
+ * карточкой узкие, и залп, родившийся за непрозрачной карточкой, не был бы виден вовсе.
+ * Он собран, только пока страница на месте: это цикл кадров, и крутить его за кадром
+ * незачем.
+ */
+@Composable
+internal fun HatchScene(active: Boolean) {
+    val card = appearFraction(active)
+    val count = appearFraction(active, delayMillis = 300, durationMillis = 900)
+    val links = appearFraction(active, delayMillis = 700)
+    val hatched = (42 * count).roundToInt()
+
+    Stage {
+        MiniCard(Modifier.rise(card), padding = 12.dp) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "🐣", fontSize = 26.sp)
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "Поздравляем!",
+                        style = DesignType.CardTitle,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "Курицы · вывод за 21 день",
+                        style = DesignType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            TileRow(spacing = 8.dp) {
+                HatchTile("Заложено", "48", MaterialTheme.colorScheme.onSurface, tileWeight())
+                HatchTile("Выведено", "$hatched", DesignPalette.Accent, tileWeight())
+                HatchTile("Вывод", "${hatched * 100 / 48}%", DesignPalette.Accent, tileWeight())
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(DesignPalette.IncomeSurface)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Прибыль",
+                    style = DesignType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "+3 200 ₽",
+                    style = DesignType.MonoEmphasis,
+                    color = DesignPalette.Accent,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.rise(links, distance = 12f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                HatchLink(R.drawable.baseline_calendar_month_24, "Календарь")
+                HatchLink(R.drawable.baseline_cottage_24, "Моё хозяйство")
+            }
+        }
+        if (active) {
+            Fireworks(
+                modifier = Modifier.matchParentSize(),
+                originBands = listOf(0.02f..0.18f, 0.82f..0.98f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HatchTile(label: String, value: String, valueColor: Color, modifier: Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(DesignPalette.MeasureTile)
+            .padding(10.dp),
+    ) {
+        Text(
+            text = label,
+            style = DesignType.Micro,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = value,
+            style = DesignType.AnalyticsValue,
+            color = valueColor,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun RowScope.HatchLink(@DrawableRes icon: Int, text: String) {
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier = Modifier
+            .weight(1f)
+            .height(34.dp)
+            .clip(shape)
+            .border(0.8.dp, DesignPalette.Accent, shape)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            painter = painterResource(id = icon),
+            contentDescription = null,
+            tint = DesignPalette.Accent,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = text,
+            style = DesignType.Micro,
+            color = DesignPalette.Accent,
+            maxLines = 1,
+        )
     }
 }

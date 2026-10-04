@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import ru.zaroslikov.incubator.domain.model.Incubator
 import ru.zaroslikov.incubator.domain.repository.ItemsRepository
+import ru.zaroslikov.incubator.ui.components.PowerFormState
+import ru.zaroslikov.incubator.ui.components.toFormState
+import ru.zaroslikov.incubator.ui.components.toSettings
 import ru.zaroslikov.incubator.ui.mvi.MviSharing
 import ru.zaroslikov.incubator.ui.mvi.MviViewModel
 
@@ -197,6 +200,8 @@ data class IncubatorFormUiState(
      * при первом же сохранении формы — переименовали устройство, а оно всплыло в списке.
      */
     val hidden: Boolean = false,
+    /** Потребление и тариф — значения по умолчанию для закладок этого инкубатора. */
+    val power: PowerFormState = PowerFormState(),
 )
 
 fun IncubatorFormUiState.toIncubator(id: Long = 0): Incubator = Incubator(
@@ -210,6 +215,7 @@ fun IncubatorFormUiState.toIncubator(id: Long = 0): Incubator = Incubator(
     autoTurn = autoTurn,
     autoAiring = autoAiring,
     hidden = hidden,
+    power = power.toSettings(),
 )
 
 fun Incubator.toUiState(): IncubatorFormUiState = IncubatorFormUiState(
@@ -223,4 +229,5 @@ fun Incubator.toUiState(): IncubatorFormUiState = IncubatorFormUiState(
     autoTurn = autoTurn,
     autoAiring = autoAiring,
     hidden = hidden,
+    power = power.toFormState(),
 )

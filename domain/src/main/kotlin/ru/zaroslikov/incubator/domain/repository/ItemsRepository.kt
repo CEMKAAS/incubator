@@ -41,6 +41,13 @@ interface ItemsRepository {
     suspend fun insertBatch(batch: Batch): Long
     /** Переписывает строку закладки и все её породы разом. */
     suspend fun updateBatch(batch: Batch)
+
+    /**
+     * Строка закладки вместе с правкой её овоскопирований — одной транзакцией: форма
+     * правки показывает их итогом «Отбраковано яиц» (`Batch.eggRejected` плюс сумма
+     * овоскопирований), и записанное порознь его бы сдвинуло.
+     */
+    suspend fun updateBatchWithCandlings(batch: Batch, save: List<Candling>, delete: List<Candling>)
     suspend fun deleteBatch(batch: Batch)
     suspend fun getArchivedBatches(type: String): List<Batch>
 

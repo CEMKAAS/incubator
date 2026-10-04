@@ -135,7 +135,6 @@ class MainActivity : ComponentActivity() {
         // И не спрашивается вовсе в сборке не для RuStore: обновление приедет оттуда,
         // откуда приложение взяли, а карточка внизу экрана повела бы в магазин.
         val appUpdate = (application as InventoryApplication).container.appUpdate
-        val airingTimer = (application as InventoryApplication).container.airingTimer
         if (!showGuide && IS_RUSTORE_BUILD) appUpdate.check()
 
         // Разрешение на уведомления спрашивается после инструкции, в `onGuideFinished`,
@@ -164,12 +163,6 @@ class MainActivity : ComponentActivity() {
                 // сложит корневая раскладка, а здесь порядок важен.
                 val waitingForAd by ads.waitingForAd.collectAsState()
                 val updateState by appUpdate.state.collectAsState()
-                // Идущий таймер проветривания — кольцом в углу поверх всех экранов, кроме
-                // формы, где он поставлен: там стоит его карточка. Нажатие ведёт в ту
-                // форму тем же путём, что и уведомление таймера, — целью запуска с новым
-                // номером, которую граф обрабатывает как приход снаружи. См. AiringTimerFab.
-                val timerState by airingTimer.state.collectAsState()
-                val openForms by airingTimer.openForms.collectAsState()
                 CompositionLocalProvider(LocalUnits provides units) {
                     Box(Modifier.fillMaxSize()) {
                         InventoryApp(
@@ -184,9 +177,10 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                         )
+                        // Идущий таймер проветривания — кольцом в углу поверх всех экранов,
+                        // кроме формы, где он поставлен. Нажатие ведёт в ту форму тем же
+                        // путём, что и уведомление таймера, — целью запуска с новым номером.
                         AiringTimerFab(
-                            state = timerState,
-                            hidden = timerState.targetOrNull?.let { it in openForms } ?: true,
                             onOpen = { target ->
                                 launchTarget = TimerTarget(target.incubatorId, target.batchId)
                                 launchSerial += 1

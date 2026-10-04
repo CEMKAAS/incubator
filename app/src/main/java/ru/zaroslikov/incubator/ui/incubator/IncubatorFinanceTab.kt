@@ -9,7 +9,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,7 +41,6 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,11 +52,13 @@ import ru.zaroslikov.incubator.domain.stats.BatchFinance
 import ru.zaroslikov.incubator.domain.stats.IncubatorFinance
 import ru.zaroslikov.incubator.settings.Currency
 import ru.zaroslikov.incubator.ui.LocalUnits
+import ru.zaroslikov.incubator.ui.components.formatKwh
+import ru.zaroslikov.incubator.design.components.HintIcon
 import ru.zaroslikov.incubator.design.components.TileRow
 import ru.zaroslikov.incubator.design.components.TruncatedText
 import ru.zaroslikov.incubator.design.components.formatCount
 import ru.zaroslikov.incubator.design.components.tileWeight
-import ru.zaroslikov.incubator.ui.start.speciesEmoji
+import ru.zaroslikov.incubator.ui.start.SpeciesGlyph
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
 
@@ -66,21 +66,13 @@ import ru.zaroslikov.incubator.design.theme.DesignType
  * Вкладка «Финансы»
  * ([узел 11:3466](https://www.figma.com/design/B48q96fOq7Nsy569AXrbWY/Untitled?node-id=11-3466)).
  *
- * Верхняя карточка — из макета: крупный итог и две плитки под ним. Всё остальное
- * дописано сверх него, потому что макет рисовал журнал операций, которого в приложении
- * нет и не завели: приложение знает о деньгах ровно три числа — во что обошлись яйца
- * закладки, за сколько ушли её птенцы и сколько стоил сам инкубатор, — и раздел считает
- * себя целиком из них (`:domain`, `stats/IncubatorFinance.kt`). Поэтому пунктирной
- * кнопки «Добавить операцию» здесь тоже нет: нажимать ей было бы не на что.
+ * Верхняя карточка — из макета; остальное дописано сверх: приложение знает о деньгах только цену
+ * яиц, цену птенцов, цену инкубатора и электричество, и раздел считается из них (`:domain`,
+ * `stats/IncubatorFinance.kt`). Порядок карточек — от общего к частному, как в «Статистике».
  *
- * Порядок карточек — от общего к частному, как и в «Статистике»: баланс, показатели на
- * единицу (яйцо и птенца), окупаемость самого инкубатора, разбор по закладкам и вывод.
- *
- * **Главная оговорка раздела повторяется на экране трижды, и это не избыточность.**
- * Цена — необязательная графа: закладка без неё вносит в расход ноль, и баланс
- * получается лучше настоящего. Поэтому число закладок без цены стоит и под балансом, и
- * в подсказках плиток, и в выводе внизу — там, где человек как раз и решает, верить ли
- * цифре.
+ * **Оговорка про закладки без цены повторяется на экране трижды намеренно**: цена необязательна,
+ * закладка без неё вносит в расход ноль, и баланс лучше настоящего — число таких закладок стоит
+ * везде, где человек решает, верить ли цифре.
  */
 @Composable
 internal fun FinanceTab(
@@ -106,6 +98,9 @@ internal fun FinanceTab(
     if (!finance.hasMoney) {
         Spacer(Modifier.height(16.dp))
         NoMoneyCard(scope)
+        // Детализация стоит и здесь: из чего сложится расход, видно ещё до первой цены.
+        Spacer(Modifier.height(16.dp))
+        ExpenseBreakdownCard(finance, scope)
         return
     }
 
@@ -113,7 +108,10 @@ internal fun FinanceTab(
     UnitMetrics(finance)
 
     Spacer(Modifier.height(16.dp))
-    IncubatorPaybackCard(finance, scope)
+    ExpenseBreakdownCard(finance, scope)
+
+    Spacer(Modifier.height(16.dp))
+    ElectricityCard(finance, scope)
 
     Spacer(Modifier.height(16.dp))
     BatchFinanceCard(finance)
@@ -209,13 +207,25 @@ private fun BalanceCard(finance: IncubatorFinance, scope: TabScope) {
  * не ждали. Про инкубатор молчим, когда его цену не вводили: обещать слагаемое, которого
  * в сумме нет, хуже, чем не обещать ничего.
  */
-private fun expenseHint(finance: IncubatorFinance, scope: TabScope): String =
-    if (finance.incubatorPrice > 0) scope.expenseComposition else "вложено в яйца"
+private fun expenseHint(finance: IncubatorFinance, scope: TabScope): String {
+    val parts = buildList {
+        if (finance.incubatorPrice > 0) add(scope.equipmentWord)
+        if (finance.eggsExpense > 0) add("яйца")
+        if (finance.electricityExpense > 0) add("свет")
+    }
+    return when {
+        parts.isEmpty() -> "вложено в яйца"
+        parts == listOf("яйца") -> "вложено в яйца"
+        else -> parts.joinToString(" + ")
+    }
+}
 
 /** «в работе ещё 9 000 ₽ · 2 закладки без цены» — пустая, когда сказать нечего. */
 private fun balanceNote(finance: IncubatorFinance, currency: Currency): String? {
+    // Идущая закладка придавливает баланс и яйцами, и светом, набежавшим к этому часу.
+    val inWork = finance.activeInvested + finance.activeElectricity
     val parts = buildList {
-        if (finance.activeInvested > 0) add("в работе ещё ${formatMoney(finance.activeInvested, currency)}")
+        if (inWork > 0) add("в работе ещё ${formatMoney(inWork, currency)}")
         if (finance.batchesWithoutEggPrice > 0) {
             add(plural(finance.batchesWithoutEggPrice, "закладка", "закладки", "закладок") + " без цены")
         }
@@ -273,16 +283,90 @@ private fun MoneyTile(
 private fun NoMoneyCard(scope: TabScope) {
     val currency = LocalUnits.current.currency
     TabCard {
-        CardHeader(
-            title = "Денег пока не видно",
-            subtitle = "Раздел считается из трёх необязательных граф",
-        )
+        CardHeader(title = "Денег пока не видно")
         Spacer(Modifier.height(14.dp))
         FinanceHintRow("Стоимость яиц", "в форме закладки, поле «Стоимость, ${currency.symbol}»")
         Spacer(Modifier.height(10.dp))
         FinanceHintRow("Стоимость птенцов", "при завершении закладки")
         Spacer(Modifier.height(10.dp))
         FinanceHintRow(scope.equipmentPriceLabel, scope.equipmentPriceHint)
+        Spacer(Modifier.height(10.dp))
+        FinanceHintRow("Электроэнергия", "потребление и тариф — ${scope.equipmentPriceHint}")
+    }
+}
+
+// --- Электроэнергия ------------------------------------------------------------------------
+
+/**
+ * Во что обошёлся свет: сумма, киловатт-часы и доля в общем расходе.
+ *
+ * Суммы здесь никто не вводил — они посчитаны из потребления и тарифа инкубатора или
+ * закладки за время, которое закладки шли (`domain.stats.electricityCosts`). Поэтому
+ * карточка обязана сказать две вещи, без которых число читается неверно: сколько из него
+ * набежало у ещё идущих закладок (оно растёт, пока они идут), и у скольких закладок
+ * посчитать было не из чего — их свет в расход не вошёл.
+ *
+ * Без единой посчитанной закладки карточка не прячется, а говорит, где вписать
+ * потребление: иначе о том, что свет вообще можно учесть, узнать было бы негде.
+ */
+@Composable
+private fun ElectricityCard(finance: IncubatorFinance, scope: TabScope) {
+    val currency = LocalUnits.current.currency
+    TabCard {
+        CardHeader(
+            title = "Электроэнергия",
+            subtitle = "Потребление × тариф за время, пока шли закладки",
+            hint = "Пока в инкубаторе идут несколько закладок, счёт за общие часы делится между ними поровну.",
+        )
+        if (!finance.electricityKnown) {
+            Spacer(Modifier.height(14.dp))
+            Text(
+                text = "Не считается: укажите потребление и тариф ${scope.equipmentPriceHint}. " +
+                    "Тогда свет войдёт в расход — и общий, и каждой закладки.",
+                style = DesignType.Body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@TabCard
+        }
+        Spacer(Modifier.height(14.dp))
+        TileRow(spacing = 12.dp) {
+            MetricCard(
+                value = formatMoney(finance.electricityExpense, currency),
+                label = "Потрачено",
+                hint = "${formatKwh(finance.kwh)} кВт·ч",
+                valueColor = DesignPalette.Expense,
+                modifier = tileWeight(),
+            )
+            MetricCard(
+                value = if (finance.expense > 0) {
+                    "${finance.electricityExpense * 100 / finance.expense}%"
+                } else "—",
+                label = "Доля расхода",
+                hint = "от общего расхода",
+                modifier = tileWeight(),
+            )
+        }
+        val notes = buildList {
+            if (finance.activeElectricity > 0) {
+                add("${formatMoney(finance.activeElectricity, currency)} набежало у идущих закладок — сумма растёт, пока они идут.")
+            }
+            if (finance.batchesWithoutElectricity > 0) {
+                add(
+                    "У " + plural(
+                        finance.batchesWithoutElectricity,
+                        "закладки", "закладок", "закладок",
+                    ) + " не указаны потребление или тариф — их свет не посчитан."
+                )
+            }
+        }
+        notes.forEach {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = it,
+                style = DesignType.Note,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -365,53 +449,50 @@ private fun lostHint(finance: IncubatorFinance): String = when {
     else -> plural(finance.lostEggs, "яйцо", "яйца", "яиц") + " не вывелось"
 }
 
-// --- Окупаемость инкубатора ----------------------------------------------------------------
+// --- Детализация расходов ------------------------------------------------------------------
 
 /**
- * Во что обошёлся сам инкубатор и какую долю своей цены он уже отбил.
- *
- * Отдельной карточкой, а не плиткой в ряду: это единственное слагаемое расхода, которое
- * к закладкам не относится вовсе — разовая покупка техники, — и здесь оно названо своим
- * числом, тогда как в плитке расхода оно спрятано внутри суммы.
- *
- * Окупаемость считается по прибыли **до** вычета техники: в балансе она уже вычтена, и
- * делить его на её же цену значило бы вычесть дважды. Поэтому «100 %» на этой полоске —
- * та самая отметка, на которой баланс наверху переходит через ноль.
- *
- * Полоска — та же, что у эффективности в «Статистике», и по той же причине: доля
- * читается глазом быстрее, чем проценты цифрами.
+ * Из чего сложен общий расход — техника, яйца, свет — и какую долю своей цены техника отбила.
+ * Стоит всегда: слагаемые без цены читаются как «не указана». Окупаемость считается по прибыли
+ * **до** вычета техники (в балансе она уже вычтена), поэтому «100 %» — отметка, на которой баланс
+ * наверху переходит через ноль.
  */
 @Composable
-private fun IncubatorPaybackCard(finance: IncubatorFinance, scope: TabScope) {
+private fun ExpenseBreakdownCard(finance: IncubatorFinance, scope: TabScope) {
     val currency = LocalUnits.current.currency
     TabCard {
-        CardHeader(
-            title = scope.equipmentTitle,
-            subtitle = "Разовая покупка — её доля в общем расходе",
-        )
+        CardHeader(title = "Детализация расходов")
         Spacer(Modifier.height(14.dp))
 
-        if (finance.incubatorPrice <= 0) {
-            Text(
-                text = scope.equipmentPriceMissing,
-                style = DesignType.Body,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            return@TabCard
-        }
-
-        val payback = finance.payback ?: 0
         // Сумма расписана слагаемыми: «инкубатор + яйца» в подписи плитки наверху
         // говорит, из чего она сложена, а здесь стоят сами числа — иначе разницу между
-        // расходом и суммой своих закладок пришлось бы вычислять в уме.
-        PaybackRow(scope.equipmentPriceLabel, formatMoney(finance.incubatorPrice, currency))
+        // расходом и суммой своих закладок пришлось бы вычислять в уме. Без цены техники
+        // разбор всё равно нужен — пропадает только окупаемость, которую не из чего считать.
+        val priced = finance.incubatorPrice > 0
+        PaybackRow(
+            scope.equipmentPriceLabel,
+            if (priced) formatMoney(finance.incubatorPrice, currency) else "не указана",
+            muted = !priced,
+            // Где вписать цену — значком у самой строки, а не абзацем под карточкой.
+            hint = if (priced) null
+            else scope.equipmentPriceMissing + " Тогда здесь появится окупаемость.",
+        )
         Spacer(Modifier.height(10.dp))
         PaybackRow("Вложено в яйца", formatMoney(finance.invested, currency))
+        Spacer(Modifier.height(10.dp))
+        PaybackRow(
+            "Электроэнергия",
+            if (finance.electricityKnown) formatMoney(finance.electricityExpense, currency)
+            else "не посчитана",
+            muted = !finance.electricityKnown,
+        )
         Spacer(Modifier.height(10.dp))
         HorizontalDivider(thickness = 0.8.dp, color = DesignPalette.CardBorder)
         Spacer(Modifier.height(10.dp))
         PaybackRow("Общий расход", formatMoney(finance.expense, currency), emphasis = true)
+        if (!priced) return@TabCard
         Spacer(Modifier.height(14.dp))
+        val payback = finance.payback ?: 0
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "Окупаемость",
@@ -439,18 +520,34 @@ private fun IncubatorPaybackCard(finance: IncubatorFinance, scope: TabScope) {
 
 /** Строка «подпись — сумма» карточки инкубатора; итоговая набрана заметнее слагаемых. */
 @Composable
-private fun PaybackRow(label: String, value: String, emphasis: Boolean = false) {
+private fun PaybackRow(
+    label: String,
+    value: String,
+    emphasis: Boolean = false,
+    muted: Boolean = false,
+    hint: String? = null,
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = label,
-            style = if (emphasis) DesignType.ListItemTitle else DesignType.Body,
-            color = MaterialTheme.colorScheme.onSurface,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.weight(1f),
-        )
+        ) {
+            Text(
+                text = label,
+                style = if (emphasis) DesignType.ListItemTitle else DesignType.Body,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (hint != null) HintIcon(hint = hint)
+        }
         Text(
             text = value,
-            style = DesignType.MoneyRow,
-            color = if (emphasis) DesignPalette.Expense else MaterialTheme.colorScheme.onSurface,
+            style = if (muted) DesignType.Body else DesignType.MoneyRow,
+            color = when {
+                emphasis -> DesignPalette.Expense
+                muted -> MaterialTheme.colorScheme.onSurfaceVariant
+                else -> MaterialTheme.colorScheme.onSurface
+            },
         )
     }
 }
@@ -458,8 +555,8 @@ private fun PaybackRow(label: String, value: String, emphasis: Boolean = false) 
 /**
  * «Прибыль покрыла 6 200 из 8 000 ₽» — или что мешает ей это сделать.
  *
- * Считает по [IncubatorFinance.profitOnBatches]: техника отбивается прибылью от закладок,
- * а не балансом, из которого её саму уже вычли.
+ * Считает по [IncubatorFinance.profitOnBatches]: техника отбивается прибылью завершённых
+ * закладок, а не балансом, из которого её саму уже вычли и в котором сидят яйца идущих.
  */
 private fun paybackFooter(
     finance: IncubatorFinance,
@@ -468,9 +565,10 @@ private fun paybackFooter(
     currency: Currency,
 ): String = when {
     finance.profitOnBatches <= 0 ->
-        "Пока в минусе: прибыль закладок ещё не покрыла расход на яйца."
+        "Пока в минусе: выручка завершённых закладок ещё не покрыла их яйца" +
+            (if (finance.electricityExpense > 0) " и свет." else ".")
     payback >= 100 ->
-        scope.paybackDone + formatMoney(finance.balance, currency) + "."
+        scope.paybackDone + formatMoney(finance.profitOverEquipment, currency) + "."
     else ->
         "Прибыль покрыла ${formatMoney(finance.profitOnBatches, currency)} " +
             "из ${formatMoney(finance.incubatorPrice, currency)}."
@@ -574,7 +672,7 @@ private fun BatchFinanceRow(row: BatchFinance, expanded: Boolean, onClick: () ->
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text = speciesEmoji(row.species), fontSize = 18.sp)
+            SpeciesGlyph(bird = row.species, fontSize = 18.sp)
             Spacer(Modifier.size(10.dp))
             Column(Modifier.weight(1f)) {
                 // Как и в истории выводов: обрезанное название закладки — и строку с
@@ -654,7 +752,7 @@ private fun profitText(row: BatchFinance, currency: Currency): String {
     val profit = row.profit
     return when {
         !row.known -> "—"
-        profit == null -> formatMoney(row.invested, currency)
+        profit == null -> formatMoney(row.expense, currency)
         else -> formatMoneySigned(profit, currency)
     }
 }
@@ -678,16 +776,18 @@ private fun profitColor(row: BatchFinance): Color {
 }
 
 /**
- * Четыре числа закладки: доход, расход, потери и итог.
+ * Разбор закладки: доход и расход с его составом.
  *
- * «Вложено» отдельной строкой нет — это подпись расхода, ровно как в плитке наверху.
- * Потери тоже не пятое слагаемое: они уже сидят внутри расхода, и складывать их с ним
- * значило бы посчитать одни и те же яйца дважды, — о чём строка и говорит.
+ * Доход и расход стоят у самого края карточки, а то, из чего сложился расход, — яйца,
+ * электроэнергия и потери — с отступом под ним: так видно, что это его части, а не ещё
+ * три суммы рядом. Потери при этом не третье слагаемое: они уже сидят внутри яиц, и
+ * складывать их с расходом значило бы посчитать одни и те же яйца дважды, — о чём строка
+ * и говорит. Итога здесь нет: он стоит в свёрнутой строке над разбором.
  */
 @Composable
 private fun BatchFinanceBreakdown(row: BatchFinance) {
     val currency = LocalUnits.current.currency
-    Column(Modifier.padding(top = 12.dp, start = 28.dp)) {
+    Column(Modifier.padding(top = 12.dp)) {
         MoneyLine(
             label = "Доход",
             value = if (row.hasChickPrice) formatMoney(row.income, currency) else "не указан",
@@ -696,46 +796,60 @@ private fun BatchFinanceBreakdown(row: BatchFinance) {
             color = if (row.hasChickPrice) DesignPalette.Accent else null,
         )
         Spacer(Modifier.height(8.dp))
+        // Без подписи: из чего сложилась сумма, расписано строками под ней.
         MoneyLine(
             label = "Расход",
-            value = if (row.hasEggPrice) formatMoney(row.expense, currency) else "не указан",
-            hint = row.eggPrice?.let {
-                "вложено в " + plural(row.eggs, "яйцо", "яйца", "яиц") + " по ${formatMoney(it, currency)}"
-            },
-            color = if (row.hasEggPrice) DesignPalette.Expense else null,
+            value = if (row.hasEggPrice || row.hasElectricity) formatMoney(row.expense, currency)
+            else "не указан",
+            hint = null,
+            color = if (row.hasEggPrice || row.hasElectricity) DesignPalette.Expense else null,
         )
-        Spacer(Modifier.height(8.dp))
-        MoneyLine(
-            label = "Потери",
-            value = if (row.hasEggPrice && row.status != BatchStatus.Active) {
-                formatMoney(row.lost, currency)
-            } else "—",
-            hint = when {
-                row.status == BatchStatus.Active -> "закладка ещё идёт"
-                !row.hasEggPrice -> null
-                else -> "часть расхода: " +
-                    plural(row.eggs - row.hatched, "яйцо", "яйца", "яиц") + " не вывелось"
-            },
-            color = if (row.lost > 0) DesignPalette.Expense else null,
-        )
-        Spacer(Modifier.height(8.dp))
-        HorizontalDivider(thickness = 0.8.dp, color = DesignPalette.CardBorder)
-        Spacer(Modifier.height(8.dp))
-        MoneyLine(
-            label = "Итог",
-            // Не profitText: в свёрнутой строке у идущей закладки на месте суммы стоит
-            // вложенное, а здесь строка так и подписана — «Итог», — и вложенное под этим
-            // словом читалось бы как заработок.
-            value = row.profit?.takeIf { row.known }?.let { formatMoneySigned(it, currency) } ?: "—",
-            hint = when {
-                row.profit == null -> "закладка ещё идёт"
-                !row.known -> "цены не указаны"
-                else -> null
-            },
-            color = profitColor(row),
-            emphasis = true,
-        )
+        Column(Modifier.padding(start = 12.dp)) {
+            Spacer(Modifier.height(8.dp))
+            MoneyLine(
+                label = "Яйца",
+                value = if (row.hasEggPrice) formatMoney(row.invested, currency) else "не указана",
+                hint = row.eggPrice?.let {
+                    plural(row.eggs, "яйцо", "яйца", "яиц") + " по ${formatMoney(it, currency)}"
+                } ?: "укажите стоимость яиц в закладке",
+                color = if (row.hasEggPrice) DesignPalette.Expense else null,
+            )
+            Spacer(Modifier.height(8.dp))
+            MoneyLine(
+                label = "Электроэнергия",
+                value = row.electricity?.let { formatMoney(it, currency) } ?: "не указана",
+                hint = electricityHint(row),
+                color = if (row.hasElectricity) DesignPalette.Expense else null,
+            )
+            Spacer(Modifier.height(8.dp))
+            MoneyLine(
+                label = "Потери",
+                value = if (row.hasEggPrice && row.status != BatchStatus.Active) {
+                    formatMoney(row.lost, currency)
+                } else "—",
+                hint = when {
+                    row.status == BatchStatus.Active -> "закладка ещё идёт"
+                    !row.hasEggPrice -> null
+                    else -> "часть стоимости яиц: " +
+                        plural(row.eggs - row.hatched, "яйцо", "яйца", "яиц") + " не вывелось"
+                },
+                color = if (row.lost > 0) DesignPalette.Expense else null,
+            )
+        }
     }
+}
+
+/**
+ * «12,4 кВт·ч · поделено с соседними закладками» — откуда взялась сумма света; без
+ * потребления и тарифа — где их указать.
+ */
+private fun electricityHint(row: BatchFinance): String {
+    val kwh = row.kwh ?: return "укажите потребление и тариф в инкубаторе или закладке"
+    return buildList {
+        add("${formatKwh(kwh)} кВт·ч")
+        if (row.status == BatchStatus.Active) add("к этому часу")
+        if (row.electricityShared) add("общие часы поделены с соседними закладками")
+    }.joinToString(" · ")
 }
 
 @Composable
@@ -744,13 +858,12 @@ private fun MoneyLine(
     value: String,
     hint: String?,
     color: Color?,
-    emphasis: Boolean = false,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
                 text = label,
-                style = if (emphasis) DesignType.ListItemTitle else DesignType.Body,
+                style = DesignType.Body,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (hint != null) {

@@ -86,7 +86,8 @@ class IncubatorStatsTest {
 
         assertEquals(50, stats.totalEggs)
         assertNull(stats.hatchRate)
-        assertNull(stats.bySpecies.single().slice.rate)
+        // Идущая закладка в разрезы по видам не входит вовсе — итога у неё ещё нет.
+        assertTrue(stats.bySpecies.isEmpty())
     }
 
     @Test
@@ -104,6 +105,7 @@ class IncubatorStatsTest {
         assertEquals(22, stats.rejected)
         assertEquals(22, stats.bySpecies.single().slice.rejected)
     }
+
 
     @Test
     fun `виды сортируются по яйцам, внутри вида — породы`() {
@@ -244,7 +246,7 @@ class IncubatorStatsTest {
     }
 
     @Test
-    fun `идущая закладка не портит процент своей породы`() {
+    fun `идущие закладки не входят в разрезы по видам и породам`() {
         val stats = incubatorStats(
             listOf(
                 batch(id = 1, arhive = "0", breed = "Ломан Браун", eggAll = 20),
@@ -254,11 +256,19 @@ class IncubatorStatsTest {
             emptyList(),
         )
 
-        val hisex = stats.breeds.first { it.name == "Хайсекс" }
-        assertEquals(40, hisex.eggs)
-        assertEquals(10, hisex.finishedEggs)
+        // Яйца идущих закладок ещё не вывелись: ни в столбец вида, ни в строку породы
+        // они не попадают. Порода, у которой всё ещё в инкубаторе, не появляется вовсе.
+        val hisex = stats.breeds.single()
+        assertEquals("Хайсекс", hisex.name)
+        assertEquals(10, hisex.eggs)
+        assertEquals(8, hisex.hatched)
         assertEquals(80, hisex.rate)
-        assertNull(stats.breeds.first { it.name == "Ломан Браун" }.rate)
+        assertEquals(0, hisex.activeEggs)
+        assertEquals(10, stats.bySpecies.single().slice.eggs)
+
+        // А в общих числах наверху идущие по-прежнему видны.
+        assertEquals(60, stats.totalEggs)
+        assertEquals(50, stats.total.activeEggs)
     }
 
     @Test
@@ -379,6 +389,28 @@ class IncubatorStatsTest {
         )
 
         assertEquals("", stats.history.single().incubator)
+    }
+
+    @Test
+    fun `строка истории раскладывает отбраковку по овоскопированиям`() {
+        val stats = incubatorStats(
+            batches = listOf(batch(id = 1, eggAll = 30, eggAllEND = 20, eggRejected = 4)),
+            candlings = listOf(
+                // Порядок записей не важен — в строке они идут по дням.
+                Candling(idPT = 1, day = 18, date = "", rejected = 0),
+                Candling(idPT = 1, day = 7, date = "", rejected = 6),
+                // Чужая закладка в разбор не попадает.
+                Candling(idPT = 2, day = 7, date = "", rejected = 9),
+            ),
+        )
+
+        val record = stats.history.single()
+        assertEquals(4, record.manualRejected)
+        assertEquals(
+            listOf(CandlingCull(day = 7, stage = 1, rejected = 6), CandlingCull(day = 18, stage = 0, rejected = 0)),
+            record.candlingCulls,
+        )
+        assertEquals(record.rejected, record.manualRejected + record.candlingCulls.sumOf { it.rejected })
     }
 
     @Test

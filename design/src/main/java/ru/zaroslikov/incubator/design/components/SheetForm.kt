@@ -49,7 +49,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -244,13 +244,8 @@ fun FieldLabel(text: String, required: Boolean = false) {
  * Нажимается не сам значок в 16 dp, а круг в 32 вокруг него: промах по подсказке
  * выглядит поломкой ровно так же, как промах по кнопке.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FieldLabelWithHint(text: String, hint: String) {
-    val tooltipState = rememberTooltipState(isPersistent = true)
-    val scope = rememberCoroutineScope()
-    val shape = RoundedCornerShape(12.dp)
-
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.padding(bottom = 6.dp),
@@ -260,57 +255,75 @@ fun FieldLabelWithHint(text: String, hint: String) {
             style = DesignType.FieldLabel,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        TooltipBox(
-            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
-            tooltip = {
-                PlainTooltip(
-                    maxWidth = HintTooltipWidth,
-                    shape = shape,
-                    containerColor = DesignPalette.Surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.border(0.8.dp, DesignPalette.CardBorder, shape),
-                ) {
-                    Text(text = hint, style = DesignType.Body)
+        HintIcon(hint = hint)
+    }
+}
+
+/**
+ * Значок «i» с подсказкой по нажатию — половина [FieldLabelWithHint], отданная наружу для
+ * мест, где пояснение прячут не у подписи поля, а у заголовка карточки. Жесты и цвета те
+ * же, и объяснены у [FieldLabelWithHint].
+ *
+ * [iconSize] — размер самого значка; круг нажатия всегда вдвое больше.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HintIcon(hint: String, modifier: Modifier = Modifier, iconSize: Dp = 16.dp) {
+    val tooltipState = rememberTooltipState(isPersistent = true)
+    val scope = rememberCoroutineScope()
+    val shape = RoundedCornerShape(12.dp)
+
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
+        tooltip = {
+            PlainTooltip(
+                maxWidth = HintTooltipWidth,
+                shape = shape,
+                containerColor = DesignPalette.Surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                shadowElevation = 6.dp,
+                modifier = Modifier.border(0.8.dp, DesignPalette.CardBorder, shape),
+            ) {
+                Text(text = hint, style = DesignType.Body)
+            }
+        },
+        state = tooltipState,
+        enableUserInput = false,
+        modifier = modifier,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(iconSize * 2)
+                .clip(CircleShape)
+                .semantics {
+                    onClick(label = "Показать подсказку") {
+                        scope.launch { tooltipState.show() }
+                        true
+                    }
                 }
-            },
-            state = tooltipState,
-            enableUserInput = false,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .semantics {
-                        onClick(label = "Показать подсказку") {
-                            scope.launch { tooltipState.show() }
-                            true
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(
+                            requireUnconsumed = false,
+                            pass = PointerEventPass.Initial,
+                        )
+                        val wasVisible = tooltipState.isVisible
+                        val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
+                            ?: return@awaitEachGesture
+                        up.consume()
+                        scope.launch {
+                            if (wasVisible) tooltipState.dismiss() else tooltipState.show()
                         }
                     }
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            awaitFirstDown(
-                                requireUnconsumed = false,
-                                pass = PointerEventPass.Initial,
-                            )
-                            val wasVisible = tooltipState.isVisible
-                            val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
-                                ?: return@awaitEachGesture
-                            up.consume()
-                            scope.launch {
-                                if (wasVisible) tooltipState.dismiss() else tooltipState.show()
-                            }
-                        }
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Info,
-                    contentDescription = "Подсказка",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Info,
+                contentDescription = "Подсказка",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(iconSize),
+            )
         }
     }
 }
@@ -492,7 +505,7 @@ fun SuggestingSheetTextField(
             trailingIcon = if (suggestions.isEmpty()) null else {
                 { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded && matches.isNotEmpty()) }
             },
-            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryEditable),
+            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
         )
 
         ExposedDropdownMenu(
@@ -528,6 +541,10 @@ fun SuggestingSheetTextField(
  * Нажимается поле целиком, а не только надпись в нём: ряд внутри растянут по ширине
  * рамки. Без этого поле без [trailing] отдавало бы под нажатие лишь ширину значения —
  * у «08:00» это треть рамки, и промах по пустому месту справа выглядел бы поломкой.
+ *
+ * [enabled] = `false` — значение показано, но выбрать другое нельзя. Поле тогда
+ * кремовое, как запертые клетки «Авто» и производные поля форм, а не серое
+ * Material-«недоступно»: значение не потеряно, оно просто уже не правится.
  */
 @Composable
 fun SheetPickerField(
@@ -538,18 +555,19 @@ fun SheetPickerField(
     height: Dp = FieldHeight,
     radius: Dp = FieldRadius,
     textStyle: TextStyle = DesignType.FieldValue,
+    enabled: Boolean = true,
     trailing: @Composable (() -> Unit)? = null,
 ) {
     Surface(
         shape = RoundedCornerShape(radius),
-        color = DesignPalette.Surface,
+        color = if (enabled) DesignPalette.Surface else DesignPalette.SheetIconButton,
         border = BorderStroke(0.8.dp, DesignPalette.CardBorder),
         modifier = modifier.height(height),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
+                .clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -602,7 +620,7 @@ fun <T> SheetDropdownField(
             trailing = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier
                 .fillMaxWidth()
-                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
         )
         ExposedDropdownMenu(
             expanded = expanded,

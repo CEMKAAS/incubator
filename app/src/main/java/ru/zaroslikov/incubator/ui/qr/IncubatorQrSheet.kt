@@ -5,10 +5,18 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +32,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -54,6 +63,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.zaroslikov.incubator.analytics.Analytics
 import ru.zaroslikov.incubator.analytics.Events
+import ru.zaroslikov.incubator.design.components.ChoiceChip
 import ru.zaroslikov.incubator.design.components.FormSpacer
 import ru.zaroslikov.incubator.design.components.LoadingBox
 import ru.zaroslikov.incubator.design.components.SheetDragHandle
@@ -71,27 +81,26 @@ import ru.zaroslikov.incubator.ui.start.modelLine
 
 private val CardRadius = 22.dp
 
-/** Сторона кода на экране: читается с руки, а ниже подпись и кнопки остаются в кадре. */
+/**
+ * Смена режима: примечание раскрывается под названием, подсказка — под карточкой. Та же
+ * длительность, что у ряда фильтров и сетки видов: это то же движение — блок приходит и уходит.
+ */
+private const val ModeSwitchMillis = 180
+
+/** Сторона кода на экране: читается с руки и не занимает всю шторку. Кнопки в кадре держит не она, а неподвижный низ шторки. */
 private val QrSideMax = 260.dp
 
 /** Сторона растра значка для экрана — стандартный xxxhdpi-размер лаунчер-иконки. */
 private const val LogoPx = 192
 
 /**
- * Шторка «QR-код инкубатора»: код, который печатают и клеят на прибор.
+ * Шторка «QR-код инкубатора»: код, который печатают и клеят на прибор. Камера телефона или сканер
+ * приложения открывает по нему «Замеры за сегодня» (см. `QrLink`). Хозяин шторки — экран: инкубатора
+ * (из шапки) и главный (из меню карточки).
  *
- * Наведённая на наклейку камера телефона — или сканер внутри приложения — открывает
- * «Замеры за сегодня» этого инкубатора (см. `QrLink`). Хозяин шторки — экран, как у
- * всех шторок: экран инкубатора, из шапки, и главный экран, из меню карточки.
- *
- * Код стоит на **белой** карточке с чёрными модулями в любой теме: это не элемент
- * оформления, а то, что сфотографируют и напечатают, и тёмная карточка с кремовыми
- * модулями на экране читалась бы камерой хуже, а на принтере — вовсе иначе. Под кодом
- * — название и модель, чтобы наклейки четырёх приборов не перепутать до печати.
- *
- * Две кнопки — «сохранить на устройстве» и «отправить» — та же пара, что у файла
- * расписания и копии базы, и по той же причине: файл себе на печать и файл в другое
- * приложение — разные намерения, и приложение не угадывает, а спрашивает.
+ * Код на **белой** карточке с чёрными модулями в любой теме: его фотографируют и печатают. Под
+ * кодом — название и модель, чтобы не перепутать наклейки. Две кнопки — «сохранить» и «отправить» —
+ * как у файла расписания и копии базы: это разные намерения.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -140,11 +149,14 @@ fun IncubatorQrSheet(
         shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
         dragHandle = { SheetDragHandle() },
     ) {
+        // Шапка и кнопки неподвижны, прокручивается только середина — код и пояснения.
+        // Кнопки — то, ради чего шторку открыли, и на невысоком экране (или с крупным
+        // шрифтом) они не должны уходить под сгиб: `weight(1f, fill = false)` отдаёт
+        // середине ровно остаток высоты окна, а пока всё помещается, не растягивает её.
         Column(
             modifier = Modifier
                 .padding(horizontal = SheetPadding)
                 .padding(bottom = 32.dp)
-                .verticalScroll(rememberScrollState())
         ) {
             SheetHeader(title = "QR-код инкубатора", onClose = onDismiss)
 
@@ -155,35 +167,57 @@ fun IncubatorQrSheet(
                 return@Column
             }
 
-            FormSpacer(16.dp)
             val incubator = state.incubator
-            QrCard(
-                modules = modules,
-                logo = logo,
-                title = incubator?.name.orEmpty(),
-                subtitle = incubator?.let { modelLine(it.brand, it.model) }.orEmpty(),
-            )
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                FormSpacer(16.dp)
+                val note = incubator?.note?.trim().orEmpty()
+                // Без примечания «Подробно» нечего добавить к «Кратко», и выбор между двумя
+                // одинаковыми карточками — не выбор: переключателя тогда нет вовсе.
+                AnimatedVisibility(
+                    visible = note.isNotEmpty(),
+                    enter = expandVertically(tween(ModeSwitchMillis), expandFrom = Alignment.Top) +
+                        fadeIn(tween(ModeSwitchMillis)),
+                    exit = shrinkVertically(tween(ModeSwitchMillis), shrinkTowards = Alignment.Top) +
+                        fadeOut(tween(ModeSwitchMillis)),
+                ) {
+                    Column {
+                        QrModeRow(mode = state.mode, onSelect = { send(IncubatorQrIntent.SetMode(it)) })
+                        FormSpacer(12.dp)
+                    }
+                }
+                QrCard(
+                    modules = modules,
+                    logo = logo,
+                    title = incubator?.name.orEmpty(),
+                    subtitle = incubator?.let { modelLine(it.brand, it.model) }.orEmpty(),
+                    note = if (state.effectiveMode == QrMode.Detailed) note else "",
+                )
 
-            FormSpacer(16.dp)
-            Text(
-                text = "Распечатайте код и наклейте на инкубатор. Наведите на него камеру " +
-                    "телефона или сканер в приложении — сразу откроются «Замеры за сегодня» " +
-                    "этого инкубатора.",
-                style = DesignType.Body,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            FormSpacer(8.dp)
-            Text(
-                text = "Код привязан к инкубатору в этом приложении: переименование его не " +
-                    "меняет, а на другом телефоне он не откроется.",
-                style = DesignType.Note,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+                FormSpacer(16.dp)
+                Text(
+                    text = "Распечатайте код и наклейте на инкубатор. Наведите на него камеру " +
+                        "телефона или сканер в приложении — сразу откроются «Замеры за сегодня» " +
+                        "этого инкубатора.",
+                    style = DesignType.Body,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FormSpacer(8.dp)
+                Text(
+                    text = "Код привязан к инкубатору в этом приложении: переименование его не " +
+                        "меняет, а на другом телефоне он не откроется.",
+                    style = DesignType.Note,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             FormSpacer(20.dp)
             Button(
                 onClick = {
-                    Analytics.report(Events.QR_EXPORT)
+                    Analytics.report(Events.QR_EXPORT, mapOf("Режим" to modeLabel(state.effectiveMode)))
                     saveLauncher.launch(
                         IncubatorQrViewModel.fileNameFor(incubator?.name.orEmpty())
                     )
@@ -200,7 +234,7 @@ fun IncubatorQrSheet(
             FormSpacer(8.dp)
             Button(
                 onClick = {
-                    Analytics.report(Events.QR_SHARE)
+                    Analytics.report(Events.QR_SHARE, mapOf("Режим" to modeLabel(state.effectiveMode)))
                     send(IncubatorQrIntent.Share)
                 },
                 enabled = !state.busy,
@@ -249,9 +283,40 @@ fun IncubatorQrSheet(
     }
 }
 
-/** Белая карточка с кодом и подписью — то, что увидит камера и что уйдёт на печать. */
+private fun modeLabel(mode: QrMode): String = when (mode) {
+    QrMode.Compact -> "кратко"
+    QrMode.Detailed -> "подробно"
+}
+
+/**
+ * «Кратко» / «Подробно» — два равных чипа на всю ширину, как градусы в «Настройках».
+ * Чипы, а не `SlidingTabSwitcher`: тому нужен значок на вкладку, а здесь выбор — это слова.
+ */
 @Composable
-private fun QrCard(modules: QrModules, logo: ImageBitmap, title: String, subtitle: String) {
+private fun QrModeRow(mode: QrMode, onSelect: (QrMode) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        ChoiceChip(
+            text = "Кратко",
+            selected = mode == QrMode.Compact,
+            onClick = { onSelect(QrMode.Compact) },
+            modifier = Modifier.weight(1f),
+        )
+        ChoiceChip(
+            text = "Подробно",
+            selected = mode == QrMode.Detailed,
+            onClick = { onSelect(QrMode.Detailed) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * Белая карточка с кодом и подписью — то, что увидит камера и что уйдёт на печать.
+ * [note] непуст только в режиме «Подробно»: под чертой, с заголовком, целиком — на
+ * бумаге его не дочитать по нажатию, и на экране оно показано так же, как будет напечатано.
+ */
+@Composable
+private fun QrCard(modules: QrModules, logo: ImageBitmap, title: String, subtitle: String, note: String) {
     Card(
         shape = RoundedCornerShape(CardRadius),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -291,6 +356,41 @@ private fun QrCard(modules: QrModules, logo: ImageBitmap, title: String, subtitl
                     color = Color.DarkGray,
                     maxLines = 1,
                 )
+            }
+            // Уходящее примечание дорисовывается своим текстом, пока блок сворачивается, —
+            // иначе он схлопнулся бы пустым, и анимации не было бы видно.
+            // Простой держатель, не `State`: запись в состояние посреди композиции вызывала бы
+            // её же повтор, а читать последнее значение нужно только здесь.
+            val lastNote = remember { arrayOf(note) }
+            if (note.isNotEmpty()) lastNote[0] = note
+            val shownNote = lastNote[0]
+            AnimatedVisibility(
+                visible = note.isNotEmpty(),
+                enter = expandVertically(tween(ModeSwitchMillis), expandFrom = Alignment.Top) +
+                    fadeIn(tween(ModeSwitchMillis)),
+                exit = shrinkVertically(tween(ModeSwitchMillis), shrinkTowards = Alignment.Top) +
+                    fadeOut(tween(ModeSwitchMillis)),
+            ) {
+                // Отступ над чертой — внутри анимации: снаружи он держал бы место под
+                // названием и в режиме «Кратко».
+                Column {
+                    Spacer(Modifier.height(14.dp))
+                    HorizontalDivider(thickness = 0.8.dp, color = Color.LightGray)
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = "ПРИМЕЧАНИЕ",
+                        style = DesignType.Micro,
+                        color = Color.DarkGray,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = shownNote,
+                        style = DesignType.Body,
+                        color = Color.Black,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
     }

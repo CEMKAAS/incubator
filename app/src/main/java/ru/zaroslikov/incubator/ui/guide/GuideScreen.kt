@@ -49,7 +49,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-import ru.zaroslikov.incubator.R
 import ru.zaroslikov.incubator.ui.navigation.NavigationDestination
 import ru.zaroslikov.incubator.design.components.SheetCircleButton
 import ru.zaroslikov.incubator.design.theme.DesignPalette
@@ -67,7 +66,6 @@ import kotlin.math.abs
  */
 object GuideDestination : NavigationDestination {
     override val route = "Guide"
-    override val titleRes = R.string.app_name
     const val revisitArg = "revisit"
     val routeWithArgs = "$route?$revisitArg={$revisitArg}"
     fun routeFor(revisit: Boolean): String = "$route?$revisitArg=$revisit"
@@ -90,6 +88,11 @@ private val GuideBody = TextStyle(
  * каждый день. Страница про вкладки инкубатора стоит четвёртой, а не второй: к ней
  * инкубатор уже заведён и закладка заложена, то есть есть чему считаться на
  * «Статистике» и «Финансах».
+ *
+ * Последние три страницы — то, что появилось позже и чего по первым пяти не угадать:
+ * QR-код на устройстве, таймер проветривания и итог вывода. Они стоят после «Каждый
+ * день под контролем», потому что опираются на неё: замер и проветривание там уже
+ * названы, а здесь показано, как сделать их быстрее и чем всё кончается.
  */
 internal enum class GuidePage(val title: String, val body: String) {
     Welcome(
@@ -128,6 +131,26 @@ internal enum class GuidePage(val title: String, val body: String) {
         body = "Записывайте замеры — приложение сравнит их с режимом дня. Отмечайте " +
             "овоскопирование, получайте напоминания, а в конце внесите результат: " +
             "вывод, потери и финансы.",
+    ),
+    Qr(
+        title = "QR-код на инкубаторе",
+        body = "Откройте инкубатор и нажмите значок QR-кода: его можно распечатать и " +
+            "наклеить на устройство. Наведите камеру телефона или сканер в приложении " +
+            "— сразу откроются «Замеры за сегодня», и один замер запишется во все " +
+            "идущие закладки.",
+    ),
+    Timer(
+        title = "Таймер проветривания",
+        body = "Открыли крышку — запустите таймер прямо в форме замера. Он досчитает, " +
+            "даже если приложение свернуть, подаст сигнал, когда пора закрывать " +
+            "инкубатор, и сам подставит минуты в замер.",
+    ),
+    Hatch(
+        title = "Вывод и итоги",
+        body = "Важные даты закладки — овоскопирование и вывод — можно добавить в " +
+            "календарь телефона. А когда птенцы вылупятся, приложение поздравит и " +
+            "подведёт итог: вывод, расходы на яйца и электричество, прибыль. Птенцов " +
+            "можно перенести в «Моё хозяйство».",
     ),
 }
 
@@ -290,6 +313,9 @@ private fun GuidePageContent(page: GuidePage, index: Int, pagerState: PagerState
                 GuidePage.Batch -> BatchScene(active)
                 GuidePage.Tabs -> TabsScene(active)
                 GuidePage.Daily -> DailyScene(active)
+                GuidePage.Qr -> QrScene(active)
+                GuidePage.Timer -> TimerScene(active)
+                GuidePage.Hatch -> HatchScene(active)
             }
         }
         Spacer(Modifier.height(28.dp))

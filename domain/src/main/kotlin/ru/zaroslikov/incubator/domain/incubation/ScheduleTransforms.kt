@@ -1,15 +1,6 @@
 package ru.zaroslikov.incubator.domain.incubation
 
-import ru.zaroslikov.incubator.domain.model.Time
 import ru.zaroslikov.incubator.domain.model.Value
-
-fun setIdPTTime(list: MutableList<Time>, idPT: Long): MutableList<Time> {
-    list.forEach {
-        it.id = 0
-        it.idPT = idPT
-    }
-    return list
-}
 
 /**
  * Отдаёт перевороты и проветривания автоматике инкубатора: их норма стирается в `null`.

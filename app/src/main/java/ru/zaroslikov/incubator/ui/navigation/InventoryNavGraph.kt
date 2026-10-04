@@ -1,6 +1,5 @@
 package ru.zaroslikov.incubator.ui.navigation
 
-
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -15,7 +14,6 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
-
 import ru.zaroslikov.incubator.analytics.Analytics
 import ru.zaroslikov.incubator.analytics.Events
 import ru.zaroslikov.incubator.LaunchTarget
@@ -36,7 +34,6 @@ import ru.zaroslikov.incubator.ui.qr.ScanQrDestination
 import ru.zaroslikov.incubator.ui.qr.ScanQrScreen
 import ru.zaroslikov.incubator.ui.start.StartDestination
 import ru.zaroslikov.incubator.ui.start.StartScreen
-
 
 /**
  * @param showGuide инструкция ещё не закрыта — граф начинается с неё.
@@ -60,18 +57,10 @@ fun InventoryNavHost(
     // «назад» тогда ведёт к списку инкубаторов, как и всякий раз, когда в инкубатор
     // входят сами.
     //
-    // Обработанный номер цели — в `rememberSaveable`, и ключа `LaunchedEffect` вместо
-    // него мало. Намерение принадлежит активности и переживает её пересоздание: поворот
-    // экрана — это `onCreate` с тем же самым намерением, то есть та же непустая цель,
-    // новая композиция и, без флага, повторный переход. На экране это выглядело так,
-    // что закрытая шторка закладки возвращается после каждого поворота, а в стеке
-    // навигации молча копится по одному инкубатору на поворот. Номер, а не флаг: ссылка
-    // из QR-кода приходит и в работающее приложение (`MainActivity.onNewIntent`), и
-    // тогда номер растёт, а обработанный — отстаёт, и переход случается ровно один раз
-    // на каждый новый приход. Новый экземпляр активности начинает счёт с нуля, а
-    // сохранённый номер уже не меньше нуля — так поворот и после второго кода ничего не
-    // повторяет. Запуск по уведомлению приходит с `FLAG_ACTIVITY_CLEAR_TASK`, то есть с
-    // чистой задачей и без сохранённого состояния, так что ему счётчик не мешает.
+    // Обработанный номер — в `rememberSaveable`: поворот пересоздаёт активность с тем же
+    // намерением, и без него переход повторялся бы на каждый поворот. Номер, а не флаг:
+    // QR-ссылка приходит и в работающее приложение (`onNewIntent`) с новым номером, а
+    // новый экземпляр активности начинает счёт с нуля и ничего не повторяет.
     var handledSerial by rememberSaveable { mutableIntStateOf(-1) }
     LaunchedEffect(launchTarget, launchSerial) {
         val target = launchTarget ?: return@LaunchedEffect
@@ -130,7 +119,6 @@ fun InventoryNavHost(
         startDestination = if (showGuide) GuideDestination.routeWithArgs
         else StartDestination.route
     ) {
-
         // Инструкция — экран, а не шторка: она занимает всё, и листается сама, а шторка
         // поверх главного экрана спорила бы с ним за жест. Один и тот же экран открывают
         // дважды: первым запуском (тогда после него — главный экран, и инструкция
@@ -201,7 +189,6 @@ fun InventoryNavHost(
                 },
                 contentPadding = contentPadding
             )
-
         }
 
         // Три раздела меню приложения. Аргументов у них нет: аналитика считается по

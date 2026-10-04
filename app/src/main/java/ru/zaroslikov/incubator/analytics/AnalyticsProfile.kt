@@ -90,7 +90,7 @@ class AnalyticsProfile(
         // вывелось ничего.
         profile.number(HATCH_RATE, stats.hatchRate)
 
-        profile.text(SPECIES, mainSpecies(stats))
+        profile.text(SPECIES, mainSpecies(batches))
         profile.text(BRAND, main?.brand)
         profile.text(MODEL, main?.model)
         profile.text(THEME, appSettings.themeMode.name)
@@ -137,10 +137,18 @@ class AnalyticsProfile(
      *
      * По яйцам, а не по числу закладок: три закладки перепелов по двадцать яиц не
      * делают хозяйство перепелиным рядом с одной куриной на сто пятьдесят.
+     *
+     * Считается по закладкам напрямую, а не по [IncubatorStats.bySpecies]: тот разрез
+     * собран только из завершённых закладок (так его показывает вкладка «Статистика»),
+     * а ведущий вид — вопрос про заложенное, и идущая закладка на него отвечает.
+     * Имя вторым ключом — чтобы при равенстве ответ не прыгал от запуска к запуску.
      */
-    private fun mainSpecies(stats: IncubatorStats): String? =
-        // Виды уже отсортированы по заложенным яйцам — первый и есть ведущий.
-        stats.bySpecies.firstOrNull()?.slice?.name
+    private fun mainSpecies(batches: List<Batch>): String? =
+        batches
+            .groupBy { it.type }
+            .map { (type, rows) -> type to rows.sumOf { it.eggAll } }
+            .sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+            .firstOrNull()?.first
 
     /**
      * Основной инкубатор — тот, в котором больше всего закладок.

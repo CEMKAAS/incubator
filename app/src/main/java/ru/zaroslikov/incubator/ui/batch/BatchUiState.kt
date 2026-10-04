@@ -3,6 +3,12 @@ package ru.zaroslikov.incubator.ui.batch
 import ru.zaroslikov.incubator.domain.model.Batch
 import ru.zaroslikov.incubator.domain.model.Value
 import ru.zaroslikov.incubator.settings.TemperatureUnit
+import ru.zaroslikov.incubator.ui.components.PowerFormState
+import ru.zaroslikov.incubator.ui.components.toFormState
+import ru.zaroslikov.incubator.ui.components.toSettings
+import ru.zaroslikov.incubator.ui.incubator.atTimeOf
+import ru.zaroslikov.incubator.ui.parseDate
+import ru.zaroslikov.incubator.ui.today
 
 /**
  * Одна строка «Породы» в форме закладки.
@@ -54,10 +60,11 @@ data class BatchUiState(
     val price: String = "",
     val pricePerEgg: Boolean = true,
     /**
-     * Итог завершения. Форма закладки этих полей не показывает — их спрашивает диалог
-     * завершения в шторке, — но возит их через себя: правка закладки идёт через
-     * [toBatch], и не перенеси она их, редактирование уже завершённой закладки стёрло
-     * бы и причину, и цену птенцов.
+     * Итог завершения. Впервые его спрашивает диалог завершения в шторке, а форма
+     * возит его через себя: правка закладки идёт через [toBatch], и не перенеси она
+     * эти поля, редактирование уже завершённой закладки стёрло бы и причину, и цену
+     * птенцов. Вывод ([eggAllEND]) и цену птенцов форма у закладки, доведённой до срока,
+     * ещё и показывает — см. [editableHatch]; причину досрочного — нет.
      */
     val endReason: String = "",
     val chickPrice: String = "",
@@ -67,10 +74,24 @@ data class BatchUiState(
     /** Время закладки «ЧЧ:ММ», пара к [data]; пусто — у старой закладки его не спрашивали. */
     val time: String = "",
     /**
-     * Отбраковано яиц помимо овоскопирований. Форма показывает это поле только при
-     * правке: у закладки, которую ещё не заложили, отбраковывать нечего.
+     * Отбраковано руками — яйца, убранные между овоскопированиями (`Batch.eggRejected`).
+     * Правится в диалоге «Отбраковано яиц» рядом с овоскопированиями по дням; поле формы
+     * показывает итог обоих учётов, [rejectedTotal].
      */
     val eggRejected: String = "",
+    /**
+     * Выбраковано за все овоскопирования — сумма строк диалога, а не колонка закладки:
+     * сами записи живут в `Batch_candling`, и форма пишет их отдельно от строки закладки.
+     */
+    val candlingRejected: Int = 0,
+    /**
+     * Потребление и тариф закладки. Новая закладка получает их от инкубатора
+     * (`AddBatchViewModel.load`), и правка здесь действует на неё одну: другой режим —
+     * другое потребление, другой месяц — другой тариф.
+     */
+    val power: PowerFormState = PowerFormState(),
+    /** Час окончания «ЧЧ:ММ», пара к [dateEnd] — когда выключили инкубатор (`Batch.timeEnd`). */
+    val timeEnd: String = "",
 ) {
     /** Порода закладки — первая строка; остальные при создании становятся своими закладками. */
     val breed: String get() = breeds.firstOrNull()?.name?.trim().orEmpty()
@@ -121,7 +142,78 @@ data class BatchUiState(
 
     /** Заложено яиц, как это запишется в базу: сумма по породам или введённое число. */
     val eggCount: Int get() = if (splitByBreeds) breedEggsTotal else eggAll.toIntOrNull() ?: 0
+
+    /**
+     * Закладка доведена до срока, и форма правки показывает её итог — сколько птенцов
+     * вывелось и почём они ушли. Тот же признак, что `BatchStatus.Hatched` в `:domain`.
+     *
+     * Только у неё: у идущей итога ещё нет, а у прерванной вывод — ноль по определению
+     * (`stoppedEarly`), и поле с ним предлагало бы переписать то, чего не было.
+     */
+    val editableHatch: Boolean get() = finished && endReason.isBlank()
+
+    /** Отбраковано руками, числом; пустое поле — ноль. */
+    val manualRejected: Int get() = eggRejected.toIntOrNull() ?: 0
+
+    /**
+     * Отбраковано всего — руками и на овоскопированиях. Это число стоит в поле формы и
+     * вычитается из заложенного в «Осталось».
+     */
+    val rejectedTotal: Int get() = manualRejected + candlingRejected
+
+    /**
+     * Отбраковать больше, чем заложили, нельзя. Поля диалога зажимают себя сами, но
+     * «Количество яиц» можно уменьшить уже после — тогда сохранение не пускает
+     * `AddBatchState.isValid`, а форма говорит почему.
+     */
+    val rejectedFits: Boolean get() = rejectedTotal <= eggCount
+
+    /**
+     * Больше птенцов, чем пережило овоскопирования, не выводится. Ручная отбраковка в
+     * предел не входит: у закладки, доведённой до срока, она — остаток, «заложено −
+     * вывелось − овоскопирования» ([withBalancedCull]), и подстраивается под вывод.
+     */
+    val hatchLimit: Int
+        get() = (eggCount - candlingRejected).coerceAtLeast(0)
+
+    /**
+     * Инкубация окончена — в срок или досрочно. Форма правки у такой закладки не трогает
+     * то, что важно только идущей: дату и время закладки (от них считаются дни, а дни
+     * уже прожиты и несут замеры) и напоминания (будить больше не о чем).
+     */
+    val finished: Boolean get() = arhive == "1"
 }
+
+/**
+ * Птенцы закладки, доведённой до срока, когда они вписаны, — тогда они главные: отбраковка
+ * подстраивается под них, а не они под неё. У идущей, прерванной и с пустым полем — `null`.
+ */
+val BatchUiState.fixedHatch: Int?
+    get() = if (editableHatch) eggAllEND.toIntOrNull() else null
+
+/**
+ * Отбраковка закладки, доведённой до срока, — всё, что не вылупилось: ручная часть
+ * пересчитывается в `заложено − вывелось − овоскопирования`, так что «заложено = вывелось +
+ * отбраковано» сходится и после правки (тот же расчёт, что в `finishedOnTime`). Пустой вывод
+ * не трогается — сохранить его форма всё равно не даст. У идущей и прерванной не меняется.
+ */
+fun BatchUiState.withBalancedCull(clampHatch: Boolean = true): BatchUiState {
+    if (!editableHatch) return this
+    val hatched = eggAllEND.toIntOrNull() ?: return this
+    val clamped = hatched.coerceIn(0, hatchLimit)
+    val manual = (eggCount - clamped - candlingRejected).coerceAtLeast(0)
+    return copy(
+        // Вывод зажимается, только когда правят его самого. Правка «Количества яиц» идёт
+        // по символу, и на полпути от «60» к «65» в поле стоит «6»: зажатый тогда вывод
+        // так и остался бы шестью. Лишний вывод держит `AddBatchState.isValid`.
+        eggAllEND = if (clampHatch) clamped.toString() else eggAllEND,
+        eggRejected = if (manual == 0) "" else manual.toString(),
+    )
+}
+
+/** Вписанный вывод помещается в яйца, пережившие овоскопирования. */
+val BatchUiState.hatchFits: Boolean
+    get() = !editableHatch || (eggAllEND.toIntOrNull() ?: 0) <= hatchLimit
 
 /**
  * Закладка из формы — одна, с первой строкой пород в качестве породы.
@@ -135,7 +227,10 @@ fun BatchUiState.toBatch(): Batch = Batch(
     type,
     data,
     eggAll.toIntOrNull() ?: 0,
-    eggAllEND.toIntOrNull() ?: 0,
+    // Птенцов не больше, чем дожило яиц, — [BatchUiState.hatchLimit]. Поле вывода зажимает
+    // себя само, но заложенное и отбраковку можно поменять уже после, и тогда держит
+    // только это место.
+    (eggAllEND.toIntOrNull() ?: 0).coerceIn(0, hatchLimit),
     airing.toString(),
     over.toString(),
     arhive,
@@ -149,8 +244,10 @@ fun BatchUiState.toBatch(): Batch = Batch(
     chickPricePerHead,
     hidden,
     time,
-    eggRejected.toIntOrNull() ?: 0,
+    manualRejected,
     breed = breed,
+    power = power.toSettings(),
+    timeEnd = timeEnd,
 )
 
 /**
@@ -201,7 +298,11 @@ fun baseBatchTitle(title: String, breed: String): String {
     }
 }
 
-fun Batch.toBatchUiState(): BatchUiState = BatchUiState(
+/**
+ * @param candlingRejected выбраковано на овоскопированиях этой закладки — вторая
+ *        половина итога «Отбраковано яиц».
+ */
+fun Batch.toBatchUiState(candlingRejected: Int = 0): BatchUiState = BatchUiState(
     id,
     title,
     type,
@@ -224,16 +325,13 @@ fun Batch.toBatchUiState(): BatchUiState = BatchUiState(
     time,
     // Ноль отбраковки — это «никого не убирали», и в поле он выглядит поставленной
     // отметкой; пустая строка честнее, а в базу она вернётся тем же нулём.
-    if (eggRejected == 0) "" else eggRejected.toString()
+    if (eggRejected == 0) "" else eggRejected.toString(),
+    candlingRejected,
+    power.toFormState(),
+    timeEnd,
 )
 
-/**
- * Состояние правки одного дня расписания.
- *
- * Жило рядом с `BatchDayViewModel` — отдельным экраном дня, — но тот удалён вместе с
- * расписанием на весь экран: день правят прямо в карточке на вкладке «Расписание» в
- * шторке закладки ([BatchDetailViewModel.dayEdit]).
- */
+/** Состояние правки одного дня расписания — в карточке дня шторки закладки ([BatchDetailViewModel]). */
 data class ValueUiState(
     val id: Long = 0,
     val day: Int = 0,
@@ -262,3 +360,29 @@ fun ValueUiState.toValue(unit: TemperatureUnit): Value = Value(
     id, day, temp.toCelsiusOrNull(unit), damp.toMeasureOrNull(),
     over.toCountOrNull(), airingCount.toCountOrNull(), airingTime.toCountOrNull(), note, idPT
 )
+
+/**
+ * Когда закладку, доведённую до срока, закончили — то, что спросил диалог завершения.
+ * У закладок, завершённых до появления поля, час пустой и показывается прочерком.
+ */
+val BatchUiState.finishMoment: FinishMoment
+    get() = FinishMoment(dateEnd, timeEnd)
+
+/**
+ * Ошибка в моменте окончания, или `null`. Проверяется только вписанный час: пустой —
+ * «не спрашивали», и подставлять за человека час закладки, чтобы потом запретить
+ * сохранение из-за него, нельзя — у закладки, завершённой в день вывода раньше часа
+ * закладки, такой момент вышел бы «ещё не наступившим».
+ */
+val BatchUiState.finishMomentError: String?
+    get() = if (timeEnd.isBlank()) {
+        // Без часа сравниваются одни даты: день окончания раньше дня закладки — ошибка
+        // при любом часе, и такая закладка осталась бы без света и с «Днём 1».
+        val start = parseDate(data)
+        val end = parseDate(dateEnd)
+        when {
+            start != null && end != null && end.before(start) -> "Раньше, чем заложили яйца"
+            end != null && end.after(today()) -> "Этот момент ещё не наступил"
+            else -> null
+        }
+    } else finishMomentError(finishMoment, parseDate(data)?.atTimeOf(time))

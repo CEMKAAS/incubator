@@ -19,23 +19,26 @@ import ru.zaroslikov.incubator.domain.model.BatchStatus
 import ru.zaroslikov.incubator.domain.model.HatchOutcome
 import ru.zaroslikov.incubator.domain.model.Candling
 import ru.zaroslikov.incubator.domain.model.Measurement
+import ru.zaroslikov.incubator.domain.model.PowerSettings
 import ru.zaroslikov.incubator.domain.model.Value
 import ru.zaroslikov.incubator.domain.model.finishedOnTime
 import ru.zaroslikov.incubator.domain.model.status
 import ru.zaroslikov.incubator.domain.model.stoppedEarly
 import ru.zaroslikov.incubator.domain.repository.ItemsRepository
 import ru.zaroslikov.incubator.domain.repository.WorkRepository
+import ru.zaroslikov.incubator.domain.stats.ElectricityCost
 import ru.zaroslikov.incubator.domain.stats.HatchSummary
 import ru.zaroslikov.incubator.domain.stats.hatchSummaryOf
 import ru.zaroslikov.incubator.settings.AppSettings
 import ru.zaroslikov.incubator.settings.TemperatureUnit
 import ru.zaroslikov.incubator.ui.clockText
 import ru.zaroslikov.incubator.ui.incubator.batchFinishMoment
+import ru.zaroslikov.incubator.ui.incubator.batchRunHours
+import ru.zaroslikov.incubator.ui.incubator.electricityOfFinished
 import ru.zaroslikov.incubator.ui.mvi.StatefulMviViewModel
 import ru.zaroslikov.incubator.ui.parseDate
 import ru.zaroslikov.incubator.ui.plusDays
 import ru.zaroslikov.incubator.ui.today
-import ru.zaroslikov.incubator.ui.todayText
 import java.util.Date
 
 /**
@@ -96,6 +99,11 @@ data class BatchDetailUiState(
      */
     val endReason: String = "",
     val startDate: Date? = null,
+    /**
+     * Час закладки «ЧЧ:ММ» или пусто. С него начинается каждый день инкубации, и
+     * в расписании он стоит у сегодняшнего дня: утром 29-го «сегодня» ещё 28-е «с 10:00».
+     */
+    val startTime: String = "",
     val hatchDate: Date? = null,
     val day: Int = 0,
     val totalDays: Int? = null,
@@ -119,6 +127,24 @@ data class BatchDetailUiState(
     /** Стоимость яиц, какой её ввели в форме закладки: она же и расход при завершении. */
     val price: Int = 0,
     val pricePerEgg: Boolean = true,
+    /**
+     * Свет закладки — как его считают «Финансы» ([electricityOfFinished]): от момента
+     * закладки до конца (у идущей — до момента чтения), общие часы поделены с соседками
+     * по инкубатору. `null` — считать не из чего (нет потребления или тарифа) либо ещё
+     * не посчитано, что различает [electricityLoaded].
+     */
+    val electricity: ElectricityCost? = null,
+    val electricityLoaded: Boolean = false,
+    /**
+     * Сколько часов закладка проработала — к моменту чтения у идущей, до выключения у
+     * завершённой ([batchRunHours]). `null` — промежуток не разобрать.
+     */
+    val runHours: Int? = null,
+    /**
+     * Окно ночного тарифа закладки «ЧЧ:ММ» — начало и конец, как их ввели в инкубаторе или
+     * в закладке (`PowerSettings.over`); `null` — тариф однозонный.
+     */
+    val nightWindow: Pair<String, String>? = null,
     /**
      * Виды птицы, встроенные и свои, — через него шторка узнаёт срок и дни
      * овоскопирования. Часть состояния, а не поле ViewModel: и «пора завершать», и
@@ -175,10 +201,9 @@ data class BatchDetailUiState(
  * одним снимком, и тогда никакой её части не достанется половина ответа — расписание
  * нового дня при сводке прежней закладки.
  *
- * Четыре последних поля — производные: их считают не при чтении, а в тех ветках
- * редьюсера, где меняются их входы ([withDerived]). Прежде это был `derivedStateOf`, и
- * причина та же, по которой он там стоял: тело шторки читает форму замера, то есть
- * перерисовывается на каждый введённый символ, а проход по всему расписанию и всем
+ * Поля [measurements], [rejectedTotal], [totals] и [candlingToday] — производные: их считают
+ * в тех ветках редьюсера, где меняются их входы ([withDerived]), а не при чтении — тело
+ * шторки перерисовывается на каждый введённый символ формы, и проход по расписанию и всем
  * замерам закладки ездить вместе с этим не должен.
  */
 @Immutable
@@ -326,13 +351,26 @@ internal sealed interface BatchDetailIntent {
     /** Завершение в срок; [hide] — заодно убрать в архив, см. [BatchDetailViewModel]. */
     data class Finish(
         val outcome: HatchOutcome,
+        /** Когда выключили инкубатор или вынули птенцов — конец счёта за свет. */
+        val moment: FinishMoment,
         val hide: Boolean = false,
     ) : BatchDetailIntent
 
-    data class FinishEarly(val reason: String, val hide: Boolean = false) : BatchDetailIntent
+    data class FinishEarly(
+        val reason: String,
+        /** Когда выключили инкубатор или убрали яйца — конец счёта за свет. */
+        val moment: FinishMoment,
+        val hide: Boolean = false,
+    ) : BatchDetailIntent
 
     /** Кнопки карточки таймера проветривания под полями формы «Замеры за сегодня». */
     data class AiringTimer(val action: AiringTimerAction) : BatchDetailIntent
+
+    /**
+     * Примечание ко дню на «Обзоре» — [Value.note] строки [dayId]. Сохраняется само, без
+     * кнопки: карточка шлёт текст, когда набор затих, и ещё раз, уходя с экрана.
+     */
+    data class SaveDayNote(val dayId: Long, val note: String) : BatchDetailIntent
 }
 
 internal sealed interface BatchDetailEffect {
@@ -343,13 +381,14 @@ internal sealed interface BatchDetailEffect {
      * когда запись состоялась. Отправляется **после** `reportIncubationOutcomes` — см.
      * причину в [BatchDetailViewModel].
      *
-     * [hatched] — сводка для поздравления, и она есть только у закладки, доведённой до
-     * срока с птенцами: досрочно прерванная и вывод «ноль» — не повод для салюта, и
-     * экран под шторкой ничего не показывает. Едет в эффекте, а не читается экраном
-     * из базы: закладка к тому моменту уже записана, а сводка собирается из того, что
-     * ViewModel и так держала — брака и срока вида.
+     * [summary] — итог для карточки, которую экран показывает под шторкой: поздравление
+     * с салютом у закладки, доведённой до срока с птенцами, «Инкубация прервана» у
+     * прерванной (`HatchSummary.stopped`) и «Птенцы не вывелись» у вывода «ноль» в срок —
+     * обе без салюта. Едет в эффекте, а не читается экраном из базы:
+     * закладка к тому моменту уже записана, а сводка собирается из того, что ViewModel
+     * и так держала — брака, дня и срока вида.
      */
-    data class Finished(val hatched: HatchSummary? = null) : BatchDetailEffect
+    data class Finished(val batchId: Long, val summary: HatchSummary? = null) : BatchDetailEffect
 }
 
 /**
@@ -485,9 +524,10 @@ internal class BatchDetailViewModel(
             BatchDetailIntent.CancelDayForm -> reduce { copy(dayForm = MeasurementForm()) }
             BatchDetailIntent.SaveDayForm -> saveDayForm()
             is BatchDetailIntent.Delete -> delete(intent.measurement)
-            is BatchDetailIntent.Finish -> finish(intent.outcome, intent.hide)
-            is BatchDetailIntent.FinishEarly -> finishEarly(intent.reason, intent.hide)
+            is BatchDetailIntent.Finish -> finish(intent.outcome, intent.moment, intent.hide)
+            is BatchDetailIntent.FinishEarly -> finishEarly(intent.reason, intent.moment, intent.hide)
             is BatchDetailIntent.AiringTimer -> onTimer(intent.action)
+            is BatchDetailIntent.SaveDayNote -> saveDayNote(intent.dayId, intent.note)
         }
     }
 
@@ -529,15 +569,13 @@ internal class BatchDetailViewModel(
 
             val total = catalog.incubationDays(batch.type)
             val start = parseDate(batch.data)
-            // Закладка, которая кончилась, стоит на дне своего завершения, а не на
-            // сегодняшнем. Счёт «от начала до сегодня» после её конца продолжает идти:
-            // партия, прерванная на пятый день, через месяц показывала бы «День 28/28»,
-            // полное кольцо и план последнего дня — ровно ту инкубацию, которой не было.
-            // Карточка на экране инкубатора считает так же (`batchProgress`), и две
-            // цифры об одной закладке расходиться не должны. Дата, которую не удалось
-            // разобрать, откатывает к прежнему поведению, а не обнуляет день.
-            val until = if (batch.status == BatchStatus.Active) today()
-            else parseDate(batch.dateEnd) ?: today()
+            // Закончившаяся закладка стоит на дне своего завершения, а не на сегодняшнем:
+            // иначе прерванная на пятый день через месяц показывала бы «День 28/28».
+            // Карточка (`batchProgress`) считает так же. Идущая считается от момента
+            // закладки до «сейчас» (день начинается в час закладки, `incubationDay`),
+            // прерванная — по датам: о моменте остановки известно только число.
+            val (from, until) = if (batch.status == BatchStatus.Active) batchStartMoment(batch) to Date()
+            else start to (parseDate(batch.dateEnd) ?: today())
             val day = if (batch.status == BatchStatus.Hatched && total != null) {
                 // Дошедшая до срока стоит на последнем своём дне, каким бы числом её ни
                 // завершили: «Завершено» и означает «срок отбыт», а завершать можно с
@@ -548,7 +586,7 @@ internal class BatchDetailViewModel(
                 // Та же функция, которой шторка замеров инкубатора выбирает строку
                 // «сегодня» у каждой идущей закладки: замер, записанный оттуда, обязан
                 // лечь в тот день, который здесь покажут как «Замеры за сегодня».
-                incubationDay(start, total, until)
+                incubationDay(from, total, until)
             }
 
             // Имя не `summary`: внутри `reduce` неявный приёмник — само состояние, и
@@ -569,6 +607,7 @@ internal class BatchDetailViewModel(
                 hidden = batch.hidden,
                 endReason = batch.endReason,
                 startDate = start,
+                startTime = batch.time.trim().takeIf { LAYING_TIME.matches(it) }.orEmpty(),
                 hatchDate = when {
                     batch.arhive != "0" -> parseDate(batch.dateEnd)
                     start != null && total != null -> start.plusDays(total)
@@ -611,6 +650,35 @@ internal class BatchDetailViewModel(
 
             launch { watchAiringTimer(batchId) }
 
+            // Свет для финансовой справки — разовым чтением при открытии: у идущей
+            // закладки счёт растёт, но часами, и шторка перечитывает его при каждом
+            // открытии. Отдельной корутиной, чтобы чтение инкубатора и соседок не
+            // задерживало сводку.
+            launch {
+                // Один «сейчас» на оба числа: часы и киловатт-часы — об одном отрезке.
+                val now = Date()
+                val incubator = itemsRepository.getIncubator(batch.incubatorId).first()
+                val power = batch.power.over(incubator?.power ?: PowerSettings())
+                val electricity = electricityOfFinished(
+                    batch = batch,
+                    incubator = incubator,
+                    neighbours = itemsRepository.getBatchesFor(batch.incubatorId).first(),
+                    now = now,
+                )
+                val hours = batchRunHours(batch, now)
+                if (activeBatchId != batchId) return@launch
+                reduce {
+                    copy(
+                        summary = summary.copy(
+                            electricity = electricity,
+                            electricityLoaded = true,
+                            runHours = hours,
+                            nightWindow = if (power.twoTariffs) power.nightStart to power.nightEnd else null,
+                        ),
+                    )
+                }
+            }
+
             launch {
                 itemsRepository.getCandlings(batchId).collect { rows ->
                     if (activeBatchId != batchId) return@collect
@@ -650,6 +718,27 @@ internal class BatchDetailViewModel(
             itemsRepository.updateValue(edited.toValue(unit))
             reduce { copy(dayEdit = null) }
         }
+    }
+
+    /**
+     * Пишет примечание ко дню в его строку плана.
+     *
+     * Строка берётся из расписания, каким его последним прислала база, и меняется в ней
+     * одна заметка: режим дня могли поправить на «Расписании», и копия, снятая раньше,
+     * вернула бы старые цифры. В `viewModelScope`, а не в области карточки: последний
+     * текст карточка отдаёт, уже закрываясь, и запись обязана пережить её.
+     */
+    private fun saveDayNote(dayId: Long, note: String) {
+        val row = current.schedule.firstOrNull { it.id == dayId } ?: return
+        if (row.note == note) return
+        // Редактор этого же дня на «Расписании» держит свою копию строки и при
+        // «Сохранить» записал бы её целиком — со старой заметкой поверх новой. Поэтому
+        // заметка подменяется и в открытой правке: последним сказанным словом остаётся
+        // то, что написали последним, где бы это ни было.
+        reduce {
+            copy(dayEdit = dayEdit?.let { if (it.id == dayId) it.copy(note = note) else it })
+        }
+        viewModelScope.launch { itemsRepository.updateValue(row.copy(note = note)) }
     }
 
     private fun save() {
@@ -706,11 +795,8 @@ internal class BatchDetailViewModel(
             if (form.editingId == 0L) itemsRepository.insertMeasurement(measurement)
             else itemsRepository.updateMeasurement(measurement)
             val snapshot = current
-            // Записанный замер — то самое ежедневное действие, ради которого приложение
-            // открывают, и в воронке оно стоит между «создал закладку» и «завершил
-            // инкубацию». До этого события там была дыра длиной во весь срок инкубации:
-            // отчитывались только переходы по экранам, то есть открытая шторка ничем не
-            // отличалась от заполненной.
+            // Шаг воронки между «создал закладку» и «завершил инкубацию»: открытая шторка
+            // от записанного замера иначе неотличима.
             Analytics.report(
                 Events.MEASUREMENT_SAVED,
                 mapOf(
@@ -827,9 +913,17 @@ internal class BatchDetailViewModel(
      *
      * [hide] — для «Убрать в архив» из меню карточки: см. [archive].
      */
-    private fun finish(outcome: HatchOutcome, hide: Boolean) {
+    private fun finish(outcome: HatchOutcome, moment: FinishMoment, hide: Boolean) {
         val source = batch ?: return
-        archive(source.finishedOnTime(outcome, endDate()), hide)
+        archive(
+            source.finishedOnTime(
+                outcome = outcome,
+                dateEnd = moment.date,
+                candlingRejected = current.candlings.sumOf { it.rejected },
+                timeEnd = moment.time,
+            ),
+            hide,
+        )
     }
 
     /**
@@ -840,14 +934,10 @@ internal class BatchDetailViewModel(
      * каким путём нажали. Причина обязательна: без неё через полгода не вспомнить, почему
      * партия из тридцати яиц кончилась ничем.
      */
-    private fun finishEarly(reason: String, hide: Boolean) {
+    private fun finishEarly(reason: String, moment: FinishMoment, hide: Boolean) {
         val source = batch ?: return
-        archive(source.stoppedEarly(reason, endDate()), hide)
+        archive(source.stoppedEarly(reason, moment.date, moment.time), hide)
     }
-
-    /** Сегодняшняя дата в том виде, в каком её хранит [Batch.dateEnd]. */
-    private fun endDate(): String =
-        todayText()
 
     /**
      * Общая часть обоих завершений: флаг списка и снятие напоминаний.
@@ -878,7 +968,15 @@ internal class BatchDetailViewModel(
             batch = stamped
             val endedOn = parseDate(stamped.dateEnd)
             val wasStopped = stamped.status == BatchStatus.Stopped
-            reduce {
+            // День остановки — от даты, выбранной в диалоге (её можно поставить задним
+            // числом), и той же арифметикой, что `load` у прерванной: по датам.
+            val stoppedOn = if (wasStopped) {
+                incubationDay(parseDate(stamped.data), current.summary.totalDays, endedOn ?: today())
+            } else null
+            // Шторку могли смахнуть, пока шла запись, и открыть другую закладку: тогда
+            // сводка ей не принадлежит. Отчёт ниже уходит всё равно — запись уже прошла, —
+            // а `Finished` несёт id, и чужая шторка его не примет.
+            if (activeBatchId == stamped.id) reduce {
                 copy(
                     summary = summary.copy(
                         eggAllEND = stamped.eggAllEND,
@@ -890,8 +988,8 @@ internal class BatchDetailViewModel(
                         // «Обзоре» осталась бы пустой, если шторку не закрыли.
                         endReason = stamped.endReason,
                         // Дошедшая до срока встаёт на последний день, как в load и на карточке;
-                        // прерванная остаётся на дне остановки — он и есть сегодняшний.
-                        day = if (wasStopped) summary.day else summary.totalDays ?: summary.day,
+                        // прерванная — на дне остановки.
+                        day = stoppedOn ?: summary.totalDays ?: summary.day,
                         hatchDate = endedOn,
                         finishesAt = null,
                     ),
@@ -902,12 +1000,23 @@ internal class BatchDetailViewModel(
             // чтение базы для отчёта было бы отменено на середине. Записан итог уже
             // выше, поэтому эффективность считается вместе с этой закладкой.
             itemsRepository.reportIncubationOutcomes(stamped.incubatorId, listOf(stamped))
-            // Поздравление — только за птенцов: прерванная закладка и вывод «ноль» —
-            // это горе, а не праздник, и сводка им не собирается.
-            val hatched = if (stamped.status == BatchStatus.Hatched && stamped.eggAllEND > 0) {
-                hatchSummaryOf(stamped, current.rejectedTotal, current.summary.totalDays)
-            } else null
-            sendEffect(BatchDetailEffect.Finished(hatched))
+            // Сводка — у любого завершения: за птенцов экран покажет поздравление с
+            // салютом, прерванной и выводу «ноль» — ту же карточку без него.
+            val summary = hatchSummaryOf(
+                stamped,
+                // В срок всё, что не вылупилось, — отбраковка: так её записал
+                // `finishedOnTime`. У прерванной брак — только убранное до остановки.
+                if (wasStopped) current.rejectedTotal else stamped.eggAll - stamped.eggAllEND,
+                current.summary.totalDays,
+                // Свет — как в «Финансах»: соседи по инкубатору делят с ней общие часы.
+                electricityOfFinished(
+                    batch = stamped,
+                    incubator = itemsRepository.getIncubator(stamped.incubatorId).first(),
+                    neighbours = itemsRepository.getBatchesFor(stamped.incubatorId).first(),
+                ),
+                stoppedDay = stoppedOn ?: current.summary.day,
+            )
+            sendEffect(BatchDetailEffect.Finished(stamped.id, summary))
         }
     }
 }
@@ -925,3 +1034,6 @@ internal fun Measurement.toForm(unit: TemperatureUnit): MeasurementForm = Measur
     note = note,
     groupId = groupId,
 )
+
+/** «ЧЧ:ММ» — час закладки в том виде, в каком его пишет форма. */
+private val LAYING_TIME = Regex("""\d{1,2}:\d{2}""")

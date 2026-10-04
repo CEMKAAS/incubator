@@ -44,7 +44,7 @@ package ru.zaroslikov.incubator.domain.model
  * величины сразу, поэтому вписывать сюда уже записанное овоскопированием нельзя.
  *
  * [hidden] — «убрана в архив» в терминах интерфейса: закладка пропадает из списка
- * инкубатора, но остаётся в базе и во всех подсчётах, потому что она правда была.
+ * инкубатора и из его статистики, финансов и аналитики хозяйства, но остаётся в базе.
  * Не путать с [arhive]: та означает «инкубация окончена» и досталась в наследство от
  * первой версии схемы вместе с именем колонки `Archive`, которое поэтому и занято.
  * Прятать можно только законченную закладку — идущая нужна на виду.
@@ -67,11 +67,25 @@ data class Batch(
     val endReason: String = "", // причина досрочного завершения; пусто — завершили в срок
     val chickPrice: Int = 0, // введённая стоимость птенцов в рублях, 0 — не указана
     val chickPricePerHead: Boolean = true, // true — [chickPrice] за птенца, false — за всех
-    val hidden: Boolean = false, // убрана из списка инкубатора; в подсчётах участвует
+    val hidden: Boolean = false, // убрана из списка инкубатора и из статистики
     val time: String = "", // время закладки «ЧЧ:ММ»; пусто — не указано
     val eggRejected: Int = 0, // отбраковано яиц помимо овоскопирований
     /** Порода одной строкой; пусто — не указывали. Одна на закладку, см. выше. */
     val breed: String = "",
+    /**
+     * Потребление и тариф этой закладки — главнее инкубаторных. Пустое поле берётся из
+     * инкубатора ([PowerSettings.over]): так считаются и закладки, заложенные до
+     * появления полей.
+     */
+    val power: PowerSettings = PowerSettings(),
+    /**
+     * Час, в который закладку закончили — выключили инкубатор или вынули птенцов, —
+     * «ЧЧ:ММ», пара к [dateEnd]. Спрашивается при завершении в срок ради счёта за свет:
+     * электричество закладки идёт до этого момента. Пусто — не спрашивали (завершённые
+     * до появления поля и прерванные досрочно), и тогда концом считается [dateEnd] в
+     * час закладки [time].
+     */
+    val timeEnd: String = "",
 )
 
 /**
@@ -111,18 +125,39 @@ data class HatchOutcome(
  * Птенцов не может быть больше, чем яиц, и зажимается это здесь, а не только в поле
  * ввода: поле правит текст, а число сюда может прийти и из другого места.
  *
+ * **Всё, что не вылупилось, становится отбраковкой** (просьба владельца, 2026-10-01):
+ * [Batch.eggRejected] дописывается до `заложено − вывелось − овоскопирования`, так что
+ * у завершённой в срок закладки «заложено = вывелось + отбраковано» сходится всегда.
+ * Яйца, дожившие до вывода без птенца, — тот же брак. [candlingRejected] — сумма
+ * отбраковки её овоскопирований: они лежат в своей таблице, и вписывать их второй раз
+ * в графу закладки нельзя.
+ *
  * Причина завершения не пишется: пустая [Batch.endReason] у завершённой закладки и
  * означает «в срок». Пара к [stoppedEarly], и тоже одна на все места, откуда закладку
  * завершают: шторка закладки, меню карточки и подсказка «Инкубация завершена».
+ *
+ * [timeEnd] — «ЧЧ:ММ», в который выключили инкубатор или вынули птенцов; вместе с
+ * [dateEnd] это конец счёта за свет ([Batch.timeEnd]). Пусто — не спрашивали.
  */
-fun Batch.finishedOnTime(outcome: HatchOutcome, dateEnd: String): Batch = copy(
-    arhive = "1",
-    dateEnd = dateEnd,
-    endReason = "",
-    eggAllEND = outcome.hatched.coerceIn(0, eggAll),
-    chickPrice = outcome.chickPrice.coerceAtLeast(0),
-    chickPricePerHead = outcome.chickPricePerHead,
-)
+fun Batch.finishedOnTime(
+    outcome: HatchOutcome,
+    dateEnd: String,
+    candlingRejected: Int,
+    timeEnd: String = "",
+): Batch {
+    val alive = (eggAll - candlingRejected).coerceAtLeast(0)
+    val hatched = outcome.hatched.coerceIn(0, alive)
+    return copy(
+        arhive = "1",
+        dateEnd = dateEnd,
+        endReason = "",
+        timeEnd = timeEnd,
+        eggAllEND = hatched,
+        eggRejected = alive - hatched,
+        chickPrice = outcome.chickPrice.coerceAtLeast(0),
+        chickPricePerHead = outcome.chickPricePerHead,
+    )
+}
 
 /**
  * Закладка, возвращённая из архива обратно в инкубацию.
@@ -138,6 +173,7 @@ fun Batch.finishedOnTime(outcome: HatchOutcome, dateEnd: String): Batch = copy(
 fun Batch.reopened(): Batch = copy(
     arhive = "0",
     dateEnd = "",
+    timeEnd = "",
     eggAllEND = 0,
     endReason = "",
     chickPrice = 0,
@@ -162,12 +198,16 @@ fun Batch.reopened(): Batch = copy(
  * [dateEnd] — параметр, а не `Date()` внутри: при архиве инкубатора одним действием
  * прерывается несколько закладок, и дата окончания у них должна быть одна.
  *
+ * [timeEnd] — «ЧЧ:ММ», когда выключили инкубатор или убрали яйца, — конец счёта за свет.
+ * Его спрашивает «Завершить досрочно»; архив инкубатора не спрашивает, и там пусто.
+ *
  * [Batch.hidden] не трогается: «прервана» — про инкубацию, «убрана» — про список, и
  * решает второе не эта функция.
  */
-fun Batch.stoppedEarly(reason: String, dateEnd: String): Batch = copy(
+fun Batch.stoppedEarly(reason: String, dateEnd: String, timeEnd: String = ""): Batch = copy(
     arhive = "1",
     dateEnd = dateEnd,
+    timeEnd = timeEnd,
     eggAllEND = 0,
     chickPrice = 0,
     chickPricePerHead = true,

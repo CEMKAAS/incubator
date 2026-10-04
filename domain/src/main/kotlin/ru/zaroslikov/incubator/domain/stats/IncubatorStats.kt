@@ -2,6 +2,7 @@ package ru.zaroslikov.incubator.domain.stats
 
 import ru.zaroslikov.incubator.domain.model.Batch
 import ru.zaroslikov.incubator.domain.model.BatchStatus
+import ru.zaroslikov.incubator.domain.incubation.SpeciesCatalog
 import ru.zaroslikov.incubator.domain.model.Candling
 import ru.zaroslikov.incubator.domain.model.status
 
@@ -84,6 +85,12 @@ data class StatsSlice(
 /**
  * Вид птицы со своими породами. [breeds] отсортированы так же, как и виды — по яйцам.
  *
+ * **Собирается только из завершённых закладок** — доведённых до срока и прерванных.
+ * Идущая закладка в разрез не входит вовсе: её яйца ещё не вывелись, и ни столбцу
+ * диаграммы «Яйца по видам», ни строке породы сказать о них пока нечего. Поэтому у этих
+ * разрезов [StatsSlice.activeBatches] и [StatsSlice.activeEggs] всегда ноль; идущие
+ * закладки видны только в [IncubatorStats.total].
+ *
  * Это единственный разрез по породам, который считает [incubatorStats]: и диаграмма, и
  * карточка «Эффективность по породам» разворачивают один и тот же список, только вторая
  * показывает все виды сразу, а первая — по нажатию.
@@ -122,10 +129,30 @@ data class HatchRecord(
     val hatched: Int,
     val rejected: Int,
     val status: BatchStatus,
+    /**
+     * Из чего сложился [rejected]: часть, записанная руками ([Batch.eggRejected]; у
+     * доведённой до срока закладки это ещё и невылупившиеся), и по строке на каждое
+     * овоскопирование с записью — по дням. Все части вместе дают [rejected].
+     */
+    val manualRejected: Int = 0,
+    val candlingCulls: List<CandlingCull> = emptyList(),
 ) {
     /** Процент вывода этой закладки; `null` — яиц не заложено (в базе так бывает). */
     val rate: Int? get() = if (eggs > 0) hatched * 100 / eggs else null
 }
+
+/**
+ * Отбраковка одного овоскопирования в строке истории.
+ *
+ * [stage] — какое оно по счёту у вида (1, 2, 3…), из [SpeciesCatalog.candlingStage];
+ * `0`, когда каталог этот день овоскопированием не считает (свой вид удалён, запись
+ * не в срок), — тогда экран называет его только днём.
+ */
+data class CandlingCull(
+    val day: Int,
+    val stage: Int,
+    val rejected: Int,
+)
 
 /**
  * Всё, что показывает вкладка: четыре числа сверху, разрезы и история.
@@ -169,9 +196,9 @@ data class IncubatorStats(
  * [Candling.idPT]. Лишние (от чужих закладок) не помешают: суммируется только то, что
  * нашлось по идентификаторам из [batches].
  *
- * Спрятанные в архив закладки сюда приходят наравне с остальными — прятать закладку
- * значит убрать её с глаз, а не сделать небывшей, и все показатели инкубатора считают
- * её как всякую другую.
+ * Какие закладки сюда приходят, решает вызывающий: экраны отдают их без убранных в
+ * архив (просьба владельца, 2026-10-01) — архив выводит закладку и из статистики. Сама
+ * функция архива не знает и считает всё, что ей дали.
  */
 fun incubatorStats(
     batches: List<Batch>,
@@ -185,6 +212,11 @@ fun incubatorStats(
      * весь домен ради одной подписи.
      */
     incubatorNames: Map<Long, String> = emptyMap(),
+    /**
+     * Каталог видов — только чтобы назвать овоскопирование в истории «первым» или
+     * «вторым». По умолчанию встроенные виды; свой вид без каталога получает номер 0.
+     */
+    catalog: SpeciesCatalog = SpeciesCatalog.EMPTY,
 ): IncubatorStats {
     if (batches.isEmpty()) return IncubatorStats()
 
@@ -195,7 +227,12 @@ fun incubatorStats(
 
     val total = sliceOf("Всего", batches, rejectedOf)
 
+    // Разрезы по видам и породам — только по завершённым закладкам. В идущей яйца ещё
+    // не вывелись: на диаграмме они раздували столбец вида, а в «Эффективности» строка
+    // породы складывала их яйца рядом с процентом, посчитанным без них. Итог у закладки
+    // появляется на завершении — тогда она и входит в разрез.
     val bySpecies = batches
+        .filter { it.status != BatchStatus.Active }
         .groupBy { it.type }
         .map { (type, rows) ->
             SpeciesStats(
@@ -222,6 +259,10 @@ fun incubatorStats(
                 hatched = batch.eggAllEND,
                 rejected = rejectedOf(batch),
                 status = batch.status,
+                manualRejected = batch.eggRejected,
+                candlingCulls = candlingsByBatch[batch.id].orEmpty()
+                    .sortedBy { it.day }
+                    .map { CandlingCull(it.day, catalog.candlingStage(batch.type, it.day), it.rejected) },
             )
         }
         // Свежие сверху. Дата — текст «dd.MM.yyyy», сортировать его как строку нельзя,

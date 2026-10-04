@@ -3,8 +3,6 @@ package ru.zaroslikov.incubator.ui.batch
 import android.content.ActivityNotFoundException
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.selection.selectable
-import ru.zaroslikov.incubator.design.components.LoadingSpinner
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -28,27 +27,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import ru.zaroslikov.incubator.analytics.Analytics
-import ru.zaroslikov.incubator.analytics.Events
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.zaroslikov.incubator.calendar.CalendarDate
 import ru.zaroslikov.incubator.calendar.CalendarDateKind
 import ru.zaroslikov.incubator.calendar.CalendarOffer
@@ -56,194 +44,80 @@ import ru.zaroslikov.incubator.calendar.CalendarWriter
 import ru.zaroslikov.incubator.calendar.DeviceCalendar
 import ru.zaroslikov.incubator.calendar.label
 import ru.zaroslikov.incubator.calendar.whenLine
+import ru.zaroslikov.incubator.design.components.LoadingSpinner
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
+import ru.zaroslikov.incubator.ui.AppViewModelProvider
 import ru.zaroslikov.incubator.ui.incubator.plural
+import ru.zaroslikov.incubator.ui.mvi.CollectEffects
 import java.time.LocalDate
-
-/** Шаг диалога. Имя шага сохраняется в `Bundle` строкой. */
-private enum class CalendarStep { Ask, Pick, Writing, Manual, Done }
-
-/** Почему даты добавляются по одной — от этого зависит первая фраза шага [CalendarStep.Manual]. */
-private enum class ManualReason { Denied, NoCalendar, Failed }
 
 /** Час, к которому провайдер присылает напоминание накануне, — см. `CalendarWriter`. */
 private const val REMINDER_HOUR = 18
 
 /**
+ * Ключ ViewModel диалога — из содержимого предложения, а не из `hashCode`: у перечислений
+ * он меняется от процесса к процессу, а ключ должен пережить восстановление. Своя
+ * ViewModel на предложение — чтобы шаг одной закладки не протёк в диалог другой.
+ */
+private fun CalendarOffer.viewModelKey(): String =
+    "calendar-offer:$title:$species:$term:" +
+        dates.joinToString(",") { "${it.kind.name}${it.date.toEpochDay()}" }
+
+/**
  * «Добавить даты в календарь?» — вопрос сразу после того, как закладку создали.
  *
- * Спрашивает каждый раз, и только при создании: даты закладки становятся известны в
- * эту минуту, и в эту же минуту человек думает о ней. Показывает его экран инкубатора,
- * поверх открывшейся закладки, — предложение едет в эффекте сохранения формы
- * (`AddBatchEffect.Saved.calendar`).
+ * Показывает экран инкубатора поверх открывшейся закладки; предложение едет в эффекте
+ * сохранения формы (`AddBatchEffect.Saved.calendar`). Шаги, запись и аналитика — в
+ * [CalendarOfferViewModel]; здесь только платформенное: запрос разрешения и
+ * `ACTION_INSERT` на шаге «по одной».
  *
- * Шаги:
- * 1. **Вопрос** — даты с галочками, все отмечены: вывод нужен всем, а овоскопирование
- *    кто-то не делает вовсе, и снять галочку дешевле, чем удалять событие из календаря.
- * 2. **Выбор календаря** — только когда пишущих календарей на телефоне несколько
- *    (личный, рабочий, семейный); с одним спрашивать не о чем.
- * 3. **Запись** — сохраняемый шаг, и ради одного: `applyBatch` блокирующий, отмена
- *    корутины его не прерывает, и поворот посреди записи оставлял события в календаре,
- *    а диалог — на «Добавить». Второе нажатие записало бы всё дважды. Восстановленный
- *    «Запись» без живой корутины значит «записано» и ведёт на «Готово».
- * 4. **По одной** — запасной путь, если в доступе отказали, календаря нет или запись
- *    не удалась: каждая дата открывает календарь на заполненном событии. Кнопка,
- *    которую нажали, должна что-то сделать.
- * 5. **Готово** — сколько дат записано и когда календарь о них напомнит.
+ * Шаги: **вопрос** (даты с галочками, все отмечены) → **выбор календаря** (только когда
+ * пишущих несколько) → **запись** → **готово**; при отказе в доступе, без календаря или
+ * при сбое записи — **по одной**: каждая дата открывает календарь на заполненном событии.
  *
- * Разрешение спрашивается по нажатию «Добавить», а не при открытии: вопрос системы о
- * доступе к календарю без объяснения, зачем он, — это вопрос, на который отвечают «нет».
+ * Разрешение спрашивается по нажатию «Добавить», а не при открытии: без объяснения,
+ * зачем оно, на системный вопрос отвечают «нет».
  */
 @Composable
 internal fun AddToCalendarDialog(
     offer: CalendarOffer,
     onDone: () -> Unit,
+    viewModel: CalendarOfferViewModel = viewModel(
+        key = offer.viewModelKey(),
+        factory = AppViewModelProvider.Factory,
+    ),
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val step = state.step
+    val busy = state.busy
+    val selected = state.selected
 
-    var stepName by rememberSaveable { mutableStateOf(CalendarStep.Ask.name) }
-    val step = CalendarStep.valueOf(stepName)
-    var reasonName by rememberSaveable { mutableStateOf(ManualReason.Denied.name) }
-    // Индексы снятых галочек — не отмеченных: по умолчанию отмечено всё.
-    var unchecked by rememberSaveable { mutableStateOf(IntArray(0)) }
-    // Какие даты на шаге «по одной» уже открывали в календаре.
-    var opened by rememberSaveable { mutableStateOf(IntArray(0)) }
-    var chosenCalendar by rememberSaveable { mutableLongStateOf(-1L) }
-    var added by rememberSaveable { mutableIntStateOf(0) }
-    var calendars by remember { mutableStateOf<List<DeviceCalendar>?>(null) }
-    // Идёт чтение календарей или запрос разрешения: кнопки глухи, второй тап не
-    // запускает второго запроса. Не сохраняется — после поворота ничего не идёт.
-    var busy by remember { mutableStateOf(false) }
-    // Корутина записи жива в этой композиции. Шаг «Запись» без неё — наследство поворота.
-    var writing by remember { mutableStateOf(false) }
-    var noCalendarApp by remember { mutableStateOf(false) }
-
-    val selected = offer.dates.filterIndexed { index, _ -> index !in unchecked }
-
-    fun goManual(reason: ManualReason) {
-        reasonName = reason.name
-        stepName = CalendarStep.Manual.name
-    }
-
-    fun write(calendarId: Long) {
-        if (writing) return
-        writing = true
-        stepName = CalendarStep.Writing.name
-        scope.launch {
-            try {
-                val count = withContext(Dispatchers.IO) {
-                    CalendarWriter.insert(context, calendarId, offer, selected)
-                }
-                added = count
-                Analytics.report(
-                    Events.CALENDAR_ADDED,
-                    mapOf("Дат" to count, "Способ" to "напрямую", "Вид" to offer.species),
-                )
-                stepName = CalendarStep.Done.name
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: SecurityException) {
-                goManual(ManualReason.Denied)
-            } catch (e: Exception) {
-                goManual(ManualReason.Failed)
-            } finally {
-                writing = false
-            }
-        }
-    }
-
-    /** Календари для записи; `null` — доступа нет (его могли отозвать, пока диалог висел). */
-    suspend fun loadCalendars(): List<DeviceCalendar>? = try {
-        withContext(Dispatchers.IO) { CalendarWriter.calendars(context) }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: SecurityException) {
-        null
-    } catch (e: Exception) {
-        emptyList()
-    }
-
-    /** Один календарь — пишем сразу, несколько — спрашиваем, куда. */
-    fun route(list: List<DeviceCalendar>?) {
-        when {
-            list == null -> goManual(ManualReason.Denied)
-            list.isEmpty() -> goManual(ManualReason.NoCalendar)
-            list.size == 1 -> write(list.single().id)
-            else -> {
-                calendars = list
-                if (list.none { it.id == chosenCalendar }) chosenCalendar = list.first().id
-                stepName = CalendarStep.Pick.name
-            }
-        }
-    }
-
-    fun proceed() {
-        busy = true
-        scope.launch {
-            val list = loadCalendars()
-            busy = false
-            route(list)
-        }
-    }
+    LaunchedEffect(viewModel, offer) { viewModel.onIntent(CalendarOfferIntent.Load(offer)) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
-    ) { result ->
-        busy = false
-        when {
-            // Пустой ответ — запрос прервали (или он был вторым подряд): это не отказ,
-            // вопрос остаётся, и «Добавить» можно нажать снова.
-            result.isEmpty() -> Unit
-            result.values.all { it } -> proceed()
-            else -> goManual(ManualReason.Denied)
-        }
-    }
+    ) { result -> viewModel.onIntent(CalendarOfferIntent.PermissionResult(result)) }
 
-    LaunchedEffect(step) {
-        when (step) {
-            // Поворот посреди записи: транзакция провайдера завершилась без нас.
-            CalendarStep.Writing -> if (!writing) {
-                added = selected.size
-                stepName = CalendarStep.Done.name
+    CollectEffects(viewModel) { effect ->
+        when (effect) {
+            CalendarOfferEffect.RequestPermission -> permissionLauncher.launch(CalendarWriter.PERMISSIONS)
+            is CalendarOfferEffect.OpenInsert -> try {
+                context.startActivity(effect.intent)
+                viewModel.onIntent(CalendarOfferIntent.Opened(effect.index))
+            } catch (e: ActivityNotFoundException) {
+                viewModel.onIntent(CalendarOfferIntent.NoCalendarApp)
             }
-            // Поворот посреди выбора: список не лежит в `Bundle`, его проще перечитать.
-            CalendarStep.Pick -> if (calendars == null) route(loadCalendars())
-            else -> Unit
+            CalendarOfferEffect.Closed -> onDone()
         }
     }
 
-    val decline = {
-        Analytics.report(Events.CALENDAR_DECLINED, mapOf("Дат" to offer.dates.size))
-        onDone()
-    }
-    val finishManual = {
-        // «Открыто», а не «Дат»: сохранил ли человек событие в чужом приложении, отсюда
-        // не видно, и смешивать это число с записанными напрямую нельзя.
-        if (opened.isNotEmpty()) {
-            Analytics.report(
-                Events.CALENDAR_ADDED,
-                mapOf("Открыто" to opened.size, "Способ" to "по одной", "Вид" to offer.species),
-            )
-        } else {
-            Analytics.report(
-                Events.CALENDAR_DECLINED,
-                mapOf("Дат" to offer.dates.size, "Этап" to "по одной"),
-            )
-        }
-        onDone()
-    }
+    // Что значит закрытие — отказ, «готово» по одной или просто «понятно», — решает шаг.
+    val dismiss = { viewModel.onIntent(CalendarOfferIntent.Dismiss) }
 
     AlertDialog(
-        onDismissRequest = {
-            when (step) {
-                CalendarStep.Ask, CalendarStep.Pick -> if (!busy) decline()
-                CalendarStep.Writing -> Unit
-                CalendarStep.Manual -> finishManual()
-                CalendarStep.Done -> onDone()
-            }
-        },
+        onDismissRequest = dismiss,
         title = {
             Text(
                 text = when (step) {
@@ -261,20 +135,14 @@ internal fun AddToCalendarDialog(
                 when (step) {
                     CalendarStep.Ask -> AskContent(
                         offer = offer,
-                        unchecked = unchecked,
-                        onToggle = { index ->
-                            unchecked = if (index in unchecked) {
-                                unchecked.filter { it != index }.toIntArray()
-                            } else {
-                                unchecked + index
-                            }
-                        },
+                        unchecked = state.unchecked,
+                        onToggle = { viewModel.onIntent(CalendarOfferIntent.Toggle(it)) },
                     )
 
                     CalendarStep.Pick -> PickContent(
-                        calendars = calendars.orEmpty(),
-                        chosen = chosenCalendar,
-                        onChoose = { chosenCalendar = it },
+                        calendars = state.calendars.orEmpty(),
+                        chosen = state.chosenCalendar,
+                        onChoose = { viewModel.onIntent(CalendarOfferIntent.Choose(it)) },
                     )
 
                     CalendarStep.Writing -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -288,24 +156,16 @@ internal fun AddToCalendarDialog(
                     }
 
                     CalendarStep.Manual -> ManualContent(
-                        reason = ManualReason.valueOf(reasonName),
+                        reason = state.reason,
+                        offer = offer,
                         dates = selected,
-                        opened = opened,
-                        noCalendarApp = noCalendarApp,
-                        onOpen = { date ->
-                            try {
-                                context.startActivity(CalendarWriter.insertIntent(offer, date))
-                                val index = offer.dates.indexOf(date)
-                                if (index !in opened) opened = opened + index
-                            } catch (e: ActivityNotFoundException) {
-                                noCalendarApp = true
-                            }
-                        },
-                        openedIndex = { date -> offer.dates.indexOf(date) },
+                        opened = state.opened,
+                        noCalendarApp = state.noCalendarApp,
+                        onOpen = { index -> viewModel.onIntent(CalendarOfferIntent.Open(index)) },
                     )
 
                     CalendarStep.Done -> Text(
-                        text = doneText(offer, selected, added),
+                        text = doneText(offer, selected, state.added),
                         style = DesignType.Body,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -316,36 +176,28 @@ internal fun AddToCalendarDialog(
             when (step) {
                 CalendarStep.Ask -> TextButton(
                     enabled = selected.isNotEmpty() && !busy,
-                    onClick = {
-                        if (busy) return@TextButton
-                        if (CalendarWriter.hasPermission(context)) {
-                            proceed()
-                        } else {
-                            busy = true
-                            permissionLauncher.launch(CalendarWriter.PERMISSIONS)
-                        }
-                    },
+                    onClick = { viewModel.onIntent(CalendarOfferIntent.Add) },
                 ) { Text(text = "Добавить", color = accentOrDim(selected.isNotEmpty() && !busy)) }
 
                 CalendarStep.Pick -> TextButton(
-                    enabled = chosenCalendar >= 0 && !busy,
-                    onClick = { if (!busy) write(chosenCalendar) },
-                ) { Text(text = "Записать", color = accentOrDim(chosenCalendar >= 0 && !busy)) }
+                    enabled = state.chosenCalendar >= 0 && !busy,
+                    onClick = { viewModel.onIntent(CalendarOfferIntent.Write) },
+                ) { Text(text = "Записать", color = accentOrDim(state.chosenCalendar >= 0 && !busy)) }
 
                 CalendarStep.Writing -> Unit
 
-                CalendarStep.Manual -> TextButton(onClick = finishManual) {
+                CalendarStep.Manual -> TextButton(onClick = dismiss) {
                     Text(text = "Готово", color = DesignPalette.Accent)
                 }
 
-                CalendarStep.Done -> TextButton(onClick = onDone) {
+                CalendarStep.Done -> TextButton(onClick = dismiss) {
                     Text(text = "Понятно", color = DesignPalette.Accent)
                 }
             }
         },
         dismissButton = {
             if (step == CalendarStep.Ask || step == CalendarStep.Pick) {
-                TextButton(enabled = !busy, onClick = decline) {
+                TextButton(enabled = !busy, onClick = dismiss) {
                     Text(text = "Не нужно", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -353,6 +205,7 @@ internal fun AddToCalendarDialog(
         containerColor = MaterialTheme.colorScheme.background,
     )
 }
+
 
 /**
  * Итог записи. Обещание «напомнит накануне в 18:00» не для всех дат правда: у
@@ -381,7 +234,7 @@ private fun accentOrDim(enabled: Boolean) =
 @Composable
 private fun AskContent(
     offer: CalendarOffer,
-    unchecked: IntArray,
+    unchecked: Set<Int>,
     onToggle: (Int) -> Unit,
 ) {
     Text(
@@ -496,11 +349,11 @@ private fun PickContent(
 @Composable
 private fun ManualContent(
     reason: ManualReason,
+    offer: CalendarOffer,
     dates: List<CalendarDate>,
-    opened: IntArray,
+    opened: Set<Int>,
     noCalendarApp: Boolean,
-    onOpen: (CalendarDate) -> Unit,
-    openedIndex: (CalendarDate) -> Int,
+    onOpen: (Int) -> Unit,
 ) {
     val why = when (reason) {
         ManualReason.Denied -> "Без доступа к календарю приложение не может записать даты само."
@@ -515,7 +368,8 @@ private fun ManualContent(
     )
     Spacer(Modifier.height(8.dp))
     dates.forEach { date ->
-        val done = openedIndex(date) in opened
+        val index = offer.dates.indexOf(date)
+        val done = index in opened
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -523,7 +377,7 @@ private fun ManualContent(
         ) {
             DateLines(date, Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
-            TextButton(onClick = { onOpen(date) }) {
+            TextButton(onClick = { onOpen(index) }) {
                 Text(
                     text = if (done) "✓ Ещё раз" else "Открыть",
                     color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else DesignPalette.Accent,

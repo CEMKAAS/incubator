@@ -1,9 +1,13 @@
 package ru.zaroslikov.incubator.design.components
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -25,6 +29,8 @@ import ru.zaroslikov.incubator.design.theme.DesignType
 
 /** Высота чипа выбора — фильтра над закладками и плиток единиц в «Настройках». */
 private val ChoiceChipHeight = 34.dp
+
+private const val ChoiceChipFadeMillis = 180
 
 /**
  * Чип «один из нескольких»: белый с обводкой, как карточки, и зелёный, когда выбран.
@@ -48,18 +54,34 @@ fun ChoiceChip(
     @DrawableRes icon: Int? = null,
 ) {
     val shape = RoundedCornerShape(50)
-    val content = if (selected) DesignPalette.OnAccent else MaterialTheme.colorScheme.onSurfaceVariant
+    // Выбор перетекает из чипа в чип, а не перескакивает: заливка, обводка и подпись меняют
+    // цвет за те же 180 мс, за которые соседние блоки раскрываются.
+    val content by animateColorAsState(
+        if (selected) DesignPalette.OnAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+        tween(ChoiceChipFadeMillis),
+        label = "chipContent",
+    )
+    val fill by animateColorAsState(
+        if (selected) DesignPalette.Accent else DesignPalette.Surface,
+        tween(ChoiceChipFadeMillis),
+        label = "chipFill",
+    )
+    val border by animateColorAsState(
+        if (selected) DesignPalette.Accent else DesignPalette.CardBorder,
+        tween(ChoiceChipFadeMillis),
+        label = "chipBorder",
+    )
     Row(
         modifier = modifier
             .height(ChoiceChipHeight)
             .clip(shape)
-            .background(if (selected) DesignPalette.Accent else DesignPalette.Surface)
-            .then(
-                if (selected) Modifier
-                else Modifier.border(0.8.dp, DesignPalette.CardBorder, shape)
-            )
+            .background(fill)
+            .border(0.8.dp, border, shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp),
+        // По центру — для чипа, растянутого весом (режимы QR-кода); чипу по размеру
+        // содержимого это ничего не меняет.
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {

@@ -3,6 +3,7 @@ package ru.zaroslikov.incubator.ui.incubator
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -13,10 +14,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import ru.zaroslikov.incubator.settings.Currency
+import ru.zaroslikov.incubator.design.components.HintIcon
 import ru.zaroslikov.incubator.design.components.TruncatedText
 import ru.zaroslikov.incubator.design.components.formatCount
 import ru.zaroslikov.incubator.design.theme.DesignPalette
@@ -32,24 +35,14 @@ import ru.zaroslikov.incubator.design.theme.DesignType
  */
 
 /**
- * По одному ли инкубатору посчитаны вкладки или по всем сразу.
- *
- * Обе вкладки — «Статистика» и «Финансы» — считаются чистыми функциями `:domain` над
- * списком закладок, и списку всё равно, из одного он устройства или из пяти:
- * [ru.zaroslikov.incubator.domain.stats.incubatorFinance] с суммой цен всех инкубаторов
- * даёт ровно сводные финансы хозяйства. Поэтому «Аналитика» показывает те же вкладки, а не
- * их вторую копию, которая разошлась бы с этой на первой же правке.
- *
- * Числа от разреза не зависят — зависят только подписи, и все они собраны здесь. Их
- * шесть, и каждая называет технику: в одном случае это «инкубатор», в другом
- * «инкубаторы», и подпись «Стоимость инкубатора» под суммой пяти цен была бы просто
- * неправдой.
+ * По одному ли инкубатору посчитаны вкладки или по всем сразу. Обе вкладки — чистые функции
+ * `:domain` над списком закладок, и «Аналитика» показывает те же вкладки, а не копию. Числа от
+ * разреза не зависят — только шесть подписей, собранных здесь: «Стоимость инкубатора» под суммой
+ * пяти цен была бы неправдой.
  */
 internal enum class TabScope(
-    /** Из чего сложен расход — подпись плитки. */
-    val expenseComposition: String,
-    /** Заголовок карточки окупаемости. */
-    val equipmentTitle: String,
+    /** Техника как слагаемое расхода в подписи плитки: «инкубатор + яйца + свет». */
+    val equipmentWord: String,
     /** Строка с ценой техники внутри неё. */
     val equipmentPriceLabel: String,
     /** Где эту цену вписать, если её нет. */
@@ -59,7 +52,7 @@ internal enum class TabScope(
     /**
      * Начало фразы об окупившейся технике; дальше подставляется сумма сверх её цены.
      *
-     * Отдельная строка, а не [equipmentTitle] со сказуемым по месту: число у подлежащего
+     * Отдельная строка, а не название техники со сказуемым по месту: число у подлежащего
      * меняет глагол («инкубатор окупился» против «инкубаторы окупились»), и склеенная
      * из двух частей фраза была бы верна ровно в одном из двух разрезов.
      */
@@ -69,8 +62,7 @@ internal enum class TabScope(
 ) {
     /** Экран одного инкубатора. */
     One(
-        expenseComposition = "инкубатор + яйца",
-        equipmentTitle = "Инкубатор",
+        equipmentWord = "инкубатор",
         equipmentPriceLabel = "Стоимость инкубатора",
         equipmentPriceHint = "в его настройках — шестерёнка сверху",
         equipmentPriceMissing = "Цена не указана — её можно вписать в настройках инкубатора.",
@@ -80,8 +72,7 @@ internal enum class TabScope(
 
     /** «Аналитика»: всё хозяйство сразу. */
     All(
-        expenseComposition = "инкубаторы + яйца",
-        equipmentTitle = "Инкубаторы",
+        equipmentWord = "инкубаторы",
         equipmentPriceLabel = "Стоимость инкубаторов",
         equipmentPriceHint = "в настройках каждого инкубатора",
         equipmentPriceMissing = "Цены не указаны — их можно вписать в настройках инкубаторов.",
@@ -108,18 +99,25 @@ internal fun TabCard(
 }
 
 @Composable
-internal fun CardHeader(title: String, subtitle: String) {
-    Text(
-        text = title,
-        style = DesignType.SectionTitle,
-        color = MaterialTheme.colorScheme.onSurface,
-    )
-    Spacer(Modifier.height(4.dp))
-    Text(
-        text = subtitle,
-        style = DesignType.Caption,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+internal fun CardHeader(title: String, subtitle: String? = null, hint: String? = null) {
+    // [hint] — значок «i» у заголовка: правило, которое нужно раз, а не при каждом взгляде.
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = title,
+            style = DesignType.SectionTitle,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        if (hint != null) HintIcon(hint = hint)
+    }
+    // Без подзаголовка — один заголовок: вкладка «Статистика» подписей под ним не носит.
+    if (subtitle != null) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = subtitle,
+            style = DesignType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable
@@ -133,19 +131,12 @@ internal fun EmptyNote(text: String) {
 }
 
 /**
- * Плитка с числом: значение, подпись и — почти всегда — знаменатель под ней.
+ * Плитка с числом: значение, подпись и — почти всегда — знаменатель под ней. [hint] нужен везде,
+ * где числа посчитаны по разным подмножествам закладок: рядом они читаются как ошибка счёта.
  *
- * [hint] на вид необязателен, но по делу обязателен почти везде: и «Статистика», и
- * «Финансы» показывают числа, посчитанные по разным подмножествам закладок, и рядом
- * такие числа читаются как ошибка счёта. Плитка без пояснения уместна там, где число
- * ни с чем не спорит, — например, цена самого инкубатора.
- *
- * **Значение стоит в одну строку, и переполненное договаривает подсказка**
- * ([TruncatedText]). Плитки идут по две в ряд и держат общую высоту ([TileRow]), так
- * что перенос «1 234 567 ₽» на вторую строку поднял бы подпись и знаменатель у обеих
- * плиток ряда: крупное хозяйство перекашивало бы страницу, которую все прочие смотрят
- * ровной. Обрезка вместо переноса — и нажатие, показывающее сумму целиком, потому что
- * обрезаются у числа как раз младшие разряды, то есть его точность.
+ * **Значение в одну строку, переполненное договаривает подсказка** ([TruncatedText]): плитки идут
+ * по две с общей высотой ([TileRow]), и перенос «1 234 567 ₽» перекосил бы весь ряд. Нажатие
+ * показывает сумму целиком — обрезаются младшие разряды, то есть точность.
  */
 @Composable
 internal fun MetricCard(

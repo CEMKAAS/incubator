@@ -42,7 +42,6 @@ const val AIRING_DONE_NOTIFICATION_ID = 2_000_000_001
 const val EXTRA_AIRING_TIMER = "ru.zaroslikov.incubator.extra.AIRING_TIMER"
 
 fun ensureAiringChannels(context: Context) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager?
         ?: return
     if (manager.getNotificationChannel(AIRING_COUNTDOWN_CHANNEL_ID) == null) {

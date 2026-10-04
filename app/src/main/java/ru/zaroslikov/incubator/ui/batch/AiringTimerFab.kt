@@ -25,22 +25,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import ru.zaroslikov.incubator.InventoryApplication
+import androidx.lifecycle.viewmodel.compose.viewModel
 import ru.zaroslikov.incubator.airing.AiringTimerState
 import ru.zaroslikov.incubator.airing.AiringTimerTarget
 import ru.zaroslikov.incubator.airing.progress
 import ru.zaroslikov.incubator.airing.remainingMillis
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
+import ru.zaroslikov.incubator.ui.AppViewModelProvider
 
 /**
  * Плавающая кнопка идущего таймера — поверх всего приложения, в **левом** нижнем углу.
@@ -49,32 +48,27 @@ import ru.zaroslikov.incubator.design.theme.DesignType
  * стартовом, мини-«+» и «Внести замер» на экране инкубатора; в левом углу не стоит
  * ничего, и кольцо там никого не заслоняет.
  *
- * Таймер ставят в форме замера и уходят по своим делам — на другой экран, в другую
- * закладку, в «Настройки», — а крышка инкубатора открыта. Кнопка показывает, сколько
- * осталось, тем же кольцом, что и карточка в форме, только вчетверо меньше, и по нажатию
- * ведёт обратно в ту форму, откуда таймер поставили ([onOpen] — тот же переход, что и
- * у уведомления). Она **не** показывается на самой этой форме ([hidden] — цель таймера
- * среди открытых форм, см. `AiringTimerController.openForms`): там стоит карточка, и
- * вторая копия того же кольца в углу была бы шумом. Пока таймер в покое, кнопки нет.
+ * Таймер ставят в форме замера и уходят по своим делам, а крышка инкубатора открыта.
+ * Кнопка показывает, сколько осталось, тем же кольцом, что и карточка в форме, и по
+ * нажатию ведёт обратно в ту форму ([onOpen] — тот же переход, что у уведомления). На
+ * самой этой форме её нет ([AiringTimerFabState.hidden]): там стоит карточка.
  *
- * Отсчёт идёт по кадрам ([frameClock]), как в карточке: цифры меняются раз в секунду, но
- * дуга кольца едет непрерывно. «Время вышло» — полное кольцо с пульсом, пока играет
- * мелодия, и тот же переход по нажатию: закрыть крышку человек может и так, а «Готово»
- * стоит в форме.
+ * Отсчёт идёт по кадрам ([frameClock]): цифры меняются раз в секунду, дуга едет
+ * непрерывно. «Время вышло» — полное кольцо с пульсом, пока играет мелодия.
  */
 @Composable
 internal fun AiringTimerFab(
-    state: AiringTimerState,
-    hidden: Boolean,
     onOpen: (AiringTimerTarget) -> Unit,
     modifier: Modifier = Modifier,
+    viewModel: AiringTimerFabViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
-    // Результат ждёт записи замера до двух часов, но плавающее кольцо ему на всё это время
-    // не нужно: оно о том, что происходит сейчас, — идёт отсчёт или звенит мелодия.
-    // Смолкший результат ждёт в карточке формы.
+    val fabState by viewModel.state.collectAsStateWithLifecycle()
+    val state = fabState.timer
+    // Смолкший результат ждёт записи замера в карточке формы; кольцо — только о том, что
+    // происходит сейчас: идёт отсчёт или звенит мелодия.
     val active = state is AiringTimerState.Running ||
         (state is AiringTimerState.Done && state.ringing)
-    val visible = !hidden && active
+    val visible = !fabState.hidden && active
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn() + scaleIn(initialScale = 0.6f),
@@ -165,34 +159,30 @@ private fun FabDone(state: AiringTimerState.Done) {
 /**
  * Отмечает форму замера открытой на время её композиции — то, по чему [AiringTimerFab]
  * прячется. Стоит в теле обеих шторок с карточкой таймера: закладки и «Замеров за
- * сегодня» инкубатора. Контейнер берётся из контекста, как SDK рекламы: у шторки нет
- * другого пути к контроллеру, а тащить его параметром через экран ради одной отметки
- * значило бы менять сигнатуры, которыми занимаются другие.
+ * сегодня» инкубатора.
  */
 @Composable
-internal fun RegisterTimerForm(target: AiringTimerTarget) {
-    val context = LocalContext.current
-    DisposableEffect(target) {
-        val controller = (context.applicationContext as? InventoryApplication)?.container?.airingTimer
-        controller?.formShown(target)
-        onDispose { controller?.formHidden(target) }
+internal fun RegisterTimerForm(
+    target: AiringTimerTarget,
+    viewModel: AiringTimerFabViewModel = viewModel(factory = AppViewModelProvider.Factory),
+) {
+    DisposableEffect(target, viewModel) {
+        viewModel.onIntent(AiringTimerFabIntent.FormShown(target))
+        onDispose { viewModel.onIntent(AiringTimerFabIntent.FormHidden(target)) }
     }
 }
 
 /**
  * Идёт ли таймер сейчас — то, по чему экран инкубатора уводит свою кнопку «Внести
  * замер» из середины к правому краю: кольцо стоит слева в той же линии, а посередине
- * широкая кнопка ложилась бы на него на узком экране. Читается из контейнера, как и
- * [RegisterTimerForm]: экрану контроллер иначе не достать.
+ * широкая кнопка ложилась бы на него на узком экране.
  */
 @Composable
-internal fun airingTimerActive(): Boolean {
-    val context = LocalContext.current
-    val controller = remember(context) {
-        (context.applicationContext as? InventoryApplication)?.container?.airingTimer
-    } ?: return false
-    val state by controller.state.collectAsStateWithLifecycle()
-    return state !is AiringTimerState.Idle
+internal fun airingTimerActive(
+    viewModel: AiringTimerFabViewModel = viewModel(factory = AppViewModelProvider.Factory),
+): Boolean {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    return state.active
 }
 
 /** Отступ от краёв — тот же, что у плавающих кнопок обоих экранов (`ScreenPadding`). */

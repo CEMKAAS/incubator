@@ -42,12 +42,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.zaroslikov.incubator.ads.AdBanner
 import ru.zaroslikov.incubator.ads.BannerAdHost
+import ru.zaroslikov.incubator.ui.batch.stageTitle
+import ru.zaroslikov.incubator.domain.incubation.SpeciesCatalog
 import ru.zaroslikov.incubator.domain.model.BatchStatus
 import ru.zaroslikov.incubator.domain.stats.HatchRecord
 import ru.zaroslikov.incubator.domain.stats.IncubatorStats
@@ -58,7 +59,7 @@ import ru.zaroslikov.incubator.design.components.TileRow
 import ru.zaroslikov.incubator.design.components.TruncatedText
 import ru.zaroslikov.incubator.design.components.formatCount
 import ru.zaroslikov.incubator.design.components.tileWeight
-import ru.zaroslikov.incubator.ui.start.speciesEmoji
+import ru.zaroslikov.incubator.ui.start.SpeciesGlyph
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
 
@@ -66,22 +67,12 @@ import ru.zaroslikov.incubator.design.theme.DesignType
  * Вкладка «Статистика»
  * ([узел 11:3144](https://www.figma.com/design/B48q96fOq7Nsy569AXrbWY/Untitled?node-id=11-3144)).
  *
- * Всё считается из уже имеющихся закладок — новых полей в базе не появилось, — а сам
- * счёт живёт в `:domain` (`stats/IncubatorStats.kt`), сюда приходит готовым. Экран
- * только раскладывает числа по карточкам.
+ * Счёт живёт в `:domain` (`stats/IncubatorStats.kt`), экран раскладывает числа по карточкам.
+ * Принимает [IncubatorStats], а не состояние экрана инкубатора: те же карточки показывает
+ * «Аналитика» по всем закладкам; от разреза зависит одна фраза внизу — [scope].
  *
- * Принимает [IncubatorStats], а не состояние экрана инкубатора: ровно те же карточки
- * показывает «Аналитика», где статистика посчитана по всем закладкам сразу. От разреза
- * зависит одна-единственная фраза внизу, и за неё отвечает [scope].
- *
- * Порядок карточек отвечает на вопросы по убыванию общности: четыре итога сверху
- * («сколько всего», «насколько хорошо», «сколько вывелось», «сколько потеряли»), затем
- * диаграмма видов с породами внутри, затем эффективность — тоже по видам, с породами
- * внутри, — и в конце история выводов, самая подробная и самая редко нужная.
- *
- * Сама карточка, её заголовок, плитка с числом и склонение по числу лежат не здесь, а в
- * `IncubatorTabParts.kt`: «Финансы» собраны из тех же деталей, и вторая их копия
- * разошлась бы с этой на первой же правке скругления.
+ * Порядок — от общего к частному: четыре итога, диаграмма видов, эффективность, история выводов.
+ * Карточка, заголовок, плитка и склонение лежат в `IncubatorTabParts.kt` — общие с «Финансами».
  */
 @Composable
 internal fun StatsTab(
@@ -127,60 +118,45 @@ internal fun StatsTab(
  * Ряд — [TileRow]: он тянет обе плитки до высоты более высокой из них. В макете они
  * выровнены, а подпись «Отбраковано» легко переносится на две строки.
  *
- * **Под каждым числом стоит его знаменатель, и это не украшение.** «700 яиц» считается
- * по всем закладкам, а «429 вылупилось» — только по завершённым, и рядом эти два числа
- * читаются как ошибка счёта: 700 − 429 − 89 ни на что не похоже. Разошлись они потому,
- * что часть яиц ещё в инкубаторе, а часть завершённых просто не вывелась. Ни одно из
- * двух не подогнать под другое, не потеряв ответа, — поэтому вместо подгонки экран
- * говорит, из чего каждое число сложено.
+ * **Все четыре — только по завершённым закладкам, и «Отбраковано» — это остаток**:
+ * всего яиц минус вылупившиеся, так что «Всего = Вылупилось + Отбраковано» сходится
+ * всегда. Яйца, что дожили до вывода и не вылупились, тоже брак. Подписей под
+ * числами нет — по просьбе владельца.
  */
 @Composable
 private fun SummaryGrid(stats: IncubatorStats) {
-    val total = stats.total
     TileRow(spacing = 12.dp) {
         MetricCard(
-            value = formatCount(stats.totalEggs),
+            value = formatCount(stats.total.finishedEggs),
             label = "Всего яиц",
-            hint = totalEggsHint(total),
             highlighted = true,
             modifier = tileWeight(),
         )
         MetricCard(
             value = stats.hatchRate?.let { "$it%" } ?: "—",
             label = "Эффективность",
-            hint = if (total.finishedEggs > 0) {
-                "${formatCount(total.finishedHatched)} из ${formatCount(total.finishedEggs)} завершённых"
-            } else {
-                "нет завершённых закладок"
-            },
             modifier = tileWeight(),
         )
     }
     Spacer(Modifier.height(12.dp))
     TileRow(spacing = 12.dp) {
         MetricCard(
-            value = formatCount(stats.hatched),
+            value = formatCount(stats.total.finishedHatched),
             label = "Вылупилось",
-            hint = if (total.finishedEggs > 0) "из ${formatCount(total.finishedEggs)} завершённых" else null,
             valueColor = DesignPalette.Accent,
             modifier = tileWeight(),
         )
         MetricCard(
-            value = formatCount(stats.rejected),
+            // Всё, что заложено в завершённые закладки и не вылупилось: брак вручную, на
+            // овоскопировании и яйца, оставшиеся в лотке без птенца, — тогда плитки сходятся.
+            value = formatCount((stats.total.finishedEggs - stats.total.finishedHatched).coerceAtLeast(0)),
             label = "Отбраковано",
-            hint = if (total.eggs > 0) "из ${formatCount(total.eggs)} заложенных" else null,
             // Красный тот же, что у расхода и у прерванной закладки: потеря есть потеря,
             // и второго красного в приложении заводить незачем.
             valueColor = DesignPalette.Expense,
             modifier = tileWeight(),
         )
     }
-}
-
-/** «10 закладок · 150 в инкубации» — вторая половина только когда идущие есть. */
-private fun totalEggsHint(total: StatsSlice): String = buildString {
-    append(plural(total.batches, "закладка", "закладки", "закладок"))
-    if (total.activeEggs > 0) append(" · ${formatCount(total.activeEggs)} в инкубации")
 }
 
 // --- Диаграмма «яйца по видам, породы внутри» ----------------------------------------------
@@ -214,34 +190,22 @@ private val MinBarGap = 16.dp
 private val ChartRowHeight = 190.dp
 
 /**
- * Столбцы по видам птицы, а под ними — раскрываемая легенда с породами.
+ * Столбцы по видам птицы, а под ними — раскрываемая легенда с породами (раскрытое в
+ * `rememberSaveable`).
  *
- * Породы спрятаны за нажатием на строку вида, а не разложены сразу: у одного вида их
- * бывает пять-шесть, и развёрнутыми они превращают карточку в простыню, из которой
- * главное — соотношение видов — уже не читается. Раскрытое состояние живёт в
- * `rememberSaveable`, чтобы поворот экрана и уход на соседнюю вкладку его не сбрасывали.
+ * **Ряд столбцов ездит вбок, когда виды не помещаются** — на «Аналитике» их пять встроенных плюс
+ * свои; мерка включения прокрутки — в [MinBarGap].
  *
- * **Ряд столбцов ездит вбок, когда виды в него не помещаются.** В макете видов три и
- * они расставлены по ширине карточки; на «Аналитике» ряд считается по всему хозяйству —
- * пять встроенных видов плюс любое число своих, — и раньше лишние столбцы просто
- * срезались краем карточки, молча. Прокрутка и мерка, по которой она включается, —
- * в [MinBarGap].
- *
- * [BoxWithConstraints] обнимает заголовок и график, но **не** легенду: ширина нужна для
- * обоих — подзаголовок называет прокрутку, только когда она есть, — а легенда
- * разворачивает породы анимацией по высоте, и держать её внутри подкомпозиции значило
- * бы измерять её заново на каждом кадре этого разворота.
+ * [BoxWithConstraints] обнимает заголовок и график, но **не** легенду: она разворачивается
+ * анимацией по высоте, и внутри подкомпозиции её измеряли бы заново на каждом кадре.
  */
 @Composable
 private fun SpeciesChartCard(species: List<SpeciesStats>) {
     TabCard {
         val withEggs = species.filter { it.slice.eggs > 0 }
         if (withEggs.isEmpty()) {
-            CardHeader(
-                title = "Яйца по видам птицы",
-                subtitle = "Нажмите вид, чтобы увидеть породы",
-            )
-            EmptyNote("Пока не заложено ни одного яйца.")
+            CardHeader(title = "Яйца по видам птицы")
+            EmptyNote("Завершённых закладок пока нет — график появится после первого вывода.")
             return@TabCard
         }
 
@@ -259,22 +223,9 @@ private fun SpeciesChartCard(species: List<SpeciesStats>) {
             // получателем становится `ColumnScope`, и `maxWidth` из констрейнтов оттуда
             // уже не виден.
             val available = maxWidth
-            val scrollable = needed > available
 
             Column {
-                CardHeader(
-                    title = "Яйца по видам птицы",
-                    // Про прокрутку сказано словами, и только когда она есть. Сама
-                    // собой она себя не выдаёт: столбцы расставлены равномерно, так
-                    // что у правого края стоит просвет, а не обрезанный столбец, — ряд
-                    // выглядит законченным. Обещать же листание там, где листать
-                    // нечего, — значит учить не верить подписям.
-                    subtitle = if (scrollable) {
-                        "Нажмите вид, чтобы увидеть породы · листайте график вбок"
-                    } else {
-                        "Нажмите вид, чтобы увидеть породы"
-                    },
-                )
+                CardHeader(title = "Яйца по видам птицы")
 
                 Spacer(Modifier.height(16.dp))
                 Row(
@@ -301,7 +252,7 @@ private fun SpeciesChartCard(species: List<SpeciesStats>) {
                                     .background(barColor(index))
                             )
                             Spacer(Modifier.height(8.dp))
-                            Text(text = speciesEmoji(item.slice.name), fontSize = 18.sp)
+                            SpeciesGlyph(bird = item.slice.name, fontSize = 18.sp)
                         }
                     }
                 }
@@ -342,7 +293,7 @@ private fun SpeciesLegendRow(item: SpeciesStats, color: Color) {
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text = speciesEmoji(item.slice.name), fontSize = 15.sp)
+            SpeciesGlyph(bird = item.slice.name, fontSize = 15.sp)
             Spacer(Modifier.size(8.dp))
             // Вес — на обёртке, а не на самой строке: [TruncatedText] отдаёт модификатор
             // вложенному узлу, где `weight` не значит ничего. См. её описание.
@@ -419,51 +370,31 @@ private fun breedSummary(breed: StatsSlice): String =
 // --- Эффективность -------------------------------------------------------------------------
 
 /**
- * Виды полосками, а породы вида — под его строкой, по нажатию.
+ * Виды полосками, а породы вида — под его строкой, по нажатию. Приходят только завершённые закладки
+ * (см. `SpeciesStats`); прочерк вместо процента — у разреза, где завершённые были без яиц
+ * ([StatsSlice.rate] == null).
  *
- * Разрезы без единой завершённой закладки ([StatsSlice.rate] == null) не отбрасываются,
- * а показываются с прочерком: «мы это закладывали, но итога ещё нет» — ответ, а пустая
- * строчка вместо вида выглядела бы как потерянные данные.
+ * Породы и виды — одна карточка, породы за нажатием: у вида их бывает пять-шесть, и развёрнутыми они
+ * скрывают соотношение видов. Складка та же, что у легенды диаграммы (`SpeciesLegendRow`): стрелка
+ * «›», `rememberSaveable` по имени вида, а вид с единственной «породой» [NO_BREED] не раскрывается.
  *
- * **Породы и виды — одна карточка, а не две подряд, и породы спрятаны за нажатием.** До
- * этого «Эффективность по породам» стояла отдельной карточкой сразу под этой: те же
- * полоски, тот же процент, те же цвета, — и вид назывался дважды, второй раз заголовком
- * группы, который нарочно не нёс чисел, чтобы не читаться как ещё одна порода. Держать
- * их рядом развёрнутыми было нечем: у одного вида пород бывает пять-шесть, и вся
- * страница между «Эффективностью» и историей выводов превращалась в простыню, из
- * которой соотношение самих видов — то, ради чего карточку открывают, — уже не
- * читалось. Породы лежат там, где им и место: внутри своего вида, на расстоянии одного
- * нажатия.
- *
- * Это ровно та же складка, что у легенды диаграммы выше (`SpeciesLegendRow`), и
- * намеренно: на одной вкладке два разных способа раскрыть породы вида человек считал бы
- * за два разных действия. Отсюда и общие мелочи — стрелка «›», поворачивающаяся на 90°,
- * `rememberSaveable` по имени вида (поворот экрана и уход на соседнюю вкладку не
- * схлопывают раскрытое) и правило «раскрывать нечего»: вид, у которого единственная
- * «порода» — это [NO_BREED], не раскрывается вовсе, иначе строка внутри повторила бы
- * цифры вида под именем, которое ничего не называет.
- *
- * Цвет пород — цвет их вида (`barColor` по его позиции), тот же, что у столбца
- * диаграммы и у строки легенды. Отступ в 20 dp у вложенных полосок не украшение:
- * начинаясь там же, где полоска вида, они читались бы как продолжение общего списка
- * видов.
+ * Цвет пород — цвет их вида (`barColor`). Отступ вложенных полосок 8 dp, чтобы не читались как
+ * продолжение списка видов; он и промежутки между строками уменьшены по просьбе владельца
+ * (2026-10-02).
  */
 @Composable
 private fun SpeciesEfficiencyCard(species: List<SpeciesStats>) {
     TabCard {
-        CardHeader(
-            title = "Эффективность по видам",
-            subtitle = "Процент вывода — по завершённым закладкам",
-        )
+        CardHeader(title = "Эффективность по видам")
 
         if (species.isEmpty()) {
-            EmptyNote("Закладок пока нет.")
+            EmptyNote("Завершённых закладок пока нет — эффективность появится после первого вывода.")
             return@TabCard
         }
 
         Spacer(Modifier.height(14.dp))
         species.forEachIndexed { index, item ->
-            if (index > 0) Spacer(Modifier.height(12.dp))
+            if (index > 0) Spacer(Modifier.height(8.dp))
             SpeciesEfficiencyGroup(item = item, color = barColor(index))
         }
     }
@@ -494,9 +425,9 @@ private fun SpeciesEfficiencyGroup(item: SpeciesStats, color: Color) {
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically(),
         ) {
-            Column(Modifier.padding(start = 20.dp)) {
+            Column(Modifier.padding(start = 8.dp)) {
                 item.breeds.forEach { breed ->
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(8.dp))
                     EfficiencyRow(slice = breed, color = color, emoji = false)
                 }
             }
@@ -530,7 +461,7 @@ private fun EfficiencyRow(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (emoji) {
-                Text(text = speciesEmoji(slice.name), fontSize = 15.sp)
+                SpeciesGlyph(bird = slice.name, fontSize = 15.sp)
                 Spacer(Modifier.size(8.dp))
             }
             Box(Modifier.weight(1f)) {
@@ -621,10 +552,7 @@ private fun HatchHistoryCard(history: List<HatchRecord>) {
     var showAll by rememberSaveable { mutableStateOf(false) }
 
     TabCard {
-        CardHeader(
-            title = "История выводов",
-            subtitle = "Завершённые закладки, свежие сверху",
-        )
+        CardHeader(title = "История выводов")
 
         if (history.isEmpty()) {
             EmptyNote("Завершённых закладок пока нет — здесь появится история выводов.")
@@ -664,14 +592,48 @@ private fun HatchHistoryCard(history: List<HatchRecord>) {
 
 private const val HistoryPreview = 5
 
+/**
+ * Строка истории; нажатие раскрывает под ней, сколько отбраковано и на каком
+ * овоскопировании.
+ *
+ * Отбраковка в самой строке не печатается: она нужна, когда разбираются, что пошло не
+ * так, а не при каждом взгляде на список, — свёрнутая строка держит только «что, где,
+ * когда и сколько вывелось». Раскрыть можно, только когда есть что показать.
+ */
 @Composable
 private fun HatchHistoryRow(record: HatchRecord) {
     val stopped = record.status == BatchStatus.Stopped
+    val expandable = record.rejected > 0 || record.candlingCulls.isNotEmpty()
+    var expanded by rememberSaveable(record.batchId) { mutableStateOf(false) }
+    val arrow by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        label = "cullArrow",
+    )
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .then(if (expandable) Modifier.clickable { expanded = !expanded } else Modifier)
+    ) {
+        HatchHistoryHead(record, stopped, arrowRotation = if (expandable) arrow else null)
+        AnimatedVisibility(
+            visible = expanded && expandable,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            CullBreakdown(record)
+        }
+    }
+}
+
+@Composable
+private fun HatchHistoryHead(record: HatchRecord, stopped: Boolean, arrowRotation: Float?) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = speciesEmoji(record.species), fontSize = 18.sp)
+        SpeciesGlyph(bird = record.species, fontSize = 18.sp)
         Spacer(Modifier.size(10.dp))
         Column(Modifier.weight(1f)) {
             // Название закладки человек пишет сам, и в строке истории его видно ровно
@@ -693,6 +655,15 @@ private fun HatchHistoryRow(record: HatchRecord) {
             )
         }
         Spacer(Modifier.size(10.dp))
+        if (arrowRotation != null) {
+            Text(
+                text = "›",
+                style = DesignType.Body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.rotate(arrowRotation),
+            )
+            Spacer(Modifier.size(8.dp))
+        }
         Column(horizontalAlignment = Alignment.End) {
             Text(
                 text = record.rate?.let { "$it%" } ?: "—",
@@ -709,22 +680,70 @@ private fun HatchHistoryRow(record: HatchRecord) {
 }
 
 /**
- * «Несушка БИ-2 · Ломан Браун · 12.03.2026 · 4 отбраковано» — пустые части выпадают.
+ * Раскрытая отбраковка закладки: ручная часть, каждое записанное овоскопирование и итог.
  *
- * Инкубатор стоит **первым и только в «Аналитике»**. Первым — потому что в истории всего
- * хозяйства «где это было» спрашивают раньше, чем «какая порода», и потому что конец
- * строки обрезается первым, а инкубатор здесь как раз то новое, ради чего строку и
- * читают. Только в «Аналитике» — потому что имя приходит из
- * [ru.zaroslikov.incubator.domain.stats.HatchRecord.incubator], а его заполняет
- * `AnalyticsViewModel`; экран одного инкубатора карту имён не передаёт, и там строка
- * остаётся прежней: столбец из одного и того же названия ничего не различал бы, а место
- * у породы и даты отнял.
+ * Во всю ширину строки, без отступа (просьба владельца, 2026-10-02): цифры встают в
+ * один столбец с процентом над ними. Овоскопирование с нулём тоже в списке — «проверили,
+ * всё целое» такой же ответ на «на каком», как и «убрали пять».
+ */
+@Composable
+private fun CullBreakdown(record: HatchRecord) {
+    Column(Modifier.padding(top = 8.dp, bottom = 2.dp)) {
+        if (record.manualRejected > 0) {
+            CullLine("Отбраковано вручную", record.manualRejected)
+        }
+        record.candlingCulls.forEach { cull ->
+            CullLine("${stageTitle(cull.stage)} · день ${cull.day}", cull.rejected)
+        }
+        Spacer(Modifier.height(4.dp))
+        HorizontalDivider(thickness = 0.8.dp, color = DesignPalette.CardBorder)
+        Spacer(Modifier.height(4.dp))
+        CullLine("Всего отбраковано", record.rejected, emphasis = true)
+    }
+}
+
+@Composable
+private fun CullLine(label: String, count: Int, emphasis: Boolean = false) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = DesignType.Caption,
+                color = if (emphasis) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.size(10.dp))
+        Text(
+            text = plural(count, "яйцо", "яйца", "яиц"),
+            style = DesignType.Caption,
+            fontWeight = if (emphasis) FontWeight.SemiBold else null,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+/**
+ * «Несушка БИ-2 · Ломан Браун · 12.03.2026» — пустые части выпадают. Отбраковка раскрывается по
+ * нажатию на строку ([CullBreakdown]).
+ *
+ * Инкубатор стоит первым и **только в «Аналитике»**: имя приходит из
+ * [ru.zaroslikov.incubator.domain.stats.HatchRecord.incubator], а его заполняет `AnalyticsViewModel`.
+ *
+ * **Свой вид назван словом перед породой** (просьба владельца, 2026-10-02): у своего вида вместо
+ * эмодзи общее 🥚. «Свой» — не из пяти встроенных (у удалённого эмодзи то же). Если название
+ * закладки совпадает с видом, второй раз его не пишем.
  */
 private fun historySubtitle(record: HatchRecord): String = listOf(
     record.incubator,
+    record.species.takeIf { it !in SpeciesCatalog.BUILT_IN && it != record.title }.orEmpty(),
     record.breed,
     record.dateEnd,
-    if (record.rejected > 0) "${formatCount(record.rejected)} отбраковано" else "",
 ).filter { it.isNotBlank() }.joinToString(" · ")
 
 // --- Вывод внизу ---------------------------------------------------------------------------

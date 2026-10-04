@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import ru.zaroslikov.incubator.analytics.Analytics
 import ru.zaroslikov.incubator.analytics.Events
@@ -19,18 +20,14 @@ import ru.zaroslikov.incubator.domain.repository.WorkRepository
 import ru.zaroslikov.incubator.domain.stats.HatchSummary
 import ru.zaroslikov.incubator.domain.stats.hatchSummaryOf
 import ru.zaroslikov.incubator.ui.mvi.StatefulMviViewModel
-import ru.zaroslikov.incubator.ui.parseDate
-import ru.zaroslikov.incubator.ui.today
-import ru.zaroslikov.incubator.ui.todayText
+import java.util.Date
+import ru.zaroslikov.incubator.ui.incubator.batchElectricity
 
 /**
  * Завершение партии — нескольких закладок, заложенных одним нажатием на разные породы.
  *
- * Отдельная ViewModel, а не [BatchDetailViewModel] в цикле: та держит одну закладку со
- * всем её расписанием и замерами, а здесь нужно другое — несколько закладок и по каждой
- * лишь остаток яиц. Что записывается в каждую, решает тот же [finishedOnTime] из
- * `:domain`, так что итог породы, внесённый здесь, ничем не отличается от внесённого из
- * её собственной шторки.
+ * Отдельная ViewModel, а не [BatchDetailViewModel] в цикле: здесь несколько закладок и по
+ * каждой лишь остаток яиц. Что записывается в каждую, решает тот же [finishedOnTime] из `:domain`.
  */
 class FinishGroupViewModel(
     private val itemsRepository: ItemsRepository,
@@ -39,17 +36,13 @@ class FinishGroupViewModel(
 
     private var loadJob: Job? = null
 
-    /**
-     * Запись уже идёт — второе нажатие «Завершить» в это окно писало бы партию дважды и
-     * оставляло второй `Finished` следующему открытию диалога. Та же защита и по той же
-     * причине, что `BatchDetailViewModel.finishing`; сбрасывается в [load].
-     */
+    /** Защита от второго нажатия, пока запись идёт (как `BatchDetailViewModel.finishing`); сбрасывается в [load]. */
     private var finishing = false
 
     override fun onIntent(intent: FinishGroupIntent) {
         when (intent) {
             is FinishGroupIntent.Load -> load(intent.incubatorId, intent.batchIds)
-            is FinishGroupIntent.Finish -> finish(intent.outcomes)
+            is FinishGroupIntent.Finish -> finish(intent.outcomes, intent.moment)
         }
     }
 
@@ -75,10 +68,10 @@ class FinishGroupViewModel(
                     .map { batch ->
                         FinishGroupItem(
                             batch = batch,
-                            // Тот же двойной учёт, что `rejectedTotal` в шторке закладки:
-                            // овоскопирования плюс отбраковка, введённая руками.
-                            rejected = candlings.filter { it.idPT == batch.id }
-                                .sumOf { it.rejected } + batch.eggRejected,
+                            // Ручная отбраковка сюда не входит: при завершении она
+                            // пересчитывается остатком (`finishedOnTime`).
+                            candling = candlings.filter { it.idPT == batch.id }
+                                .sumOf { it.rejected },
                         )
                     }
                 items to SpeciesCatalog(customSpecies)
@@ -92,15 +85,15 @@ class FinishGroupViewModel(
      * Записывает итог тем закладкам партии, по которым его внесли; остальные остаются в
      * инкубации — вывод по породе может идти дольше, и итог по ней внесут позже.
      */
-    private fun finish(outcomes: Map<Long, HatchOutcome>) {
+    private fun finish(outcomes: Map<Long, HatchOutcome>, moment: FinishMoment) {
         val state = current
         if (!state.loaded || outcomes.isEmpty() || finishing) return
-        val dateEnd = todayText()
-        val finishedItems = state.items
+        val finished = state.items
             .mapNotNull { item ->
-                outcomes[item.batch.id]?.let { item.batch.finishedOnTime(it, dateEnd) to item.rejected }
+                outcomes[item.batch.id]?.let {
+                    item.batch.finishedOnTime(it, moment.date, item.candling, moment.time)
+                }
             }
-        val finished = finishedItems.map { it.first }
         if (finished.isEmpty()) return
         finishing = true
         loadJob?.cancel()
@@ -110,8 +103,7 @@ class FinishGroupViewModel(
             finished.forEach { itemsRepository.updateBatch(it) }
             workRepository.refreshReminders()
             finished.forEach { batch ->
-                // Имя события и параметры — те же, что у диалога одной закладки: партия
-                // из двух пород — это два завершения, и считаться они должны как два.
+                // Как у диалога одной закладки: партия из двух пород — два завершения.
                 Analytics.report(
                     Events.FINISH_ON_TIME,
                     mapOf(
@@ -119,31 +111,40 @@ class FinishGroupViewModel(
                         "Тип" to batch.type,
                         "Кол-во" to batch.eggAll,
                         "Кол-во пос" to batch.eggAllEND,
-                        "День" to incubationDay(parseDate(batch.data), null, today()),
+                        "День" to incubationDay(batchStartMoment(batch), null, Date()),
                         "Партия" to state.items.size,
                     ),
                 )
             }
             // До эффекта: по нему закрывается диалог, а с ним уходит и эта область корутин.
             itemsRepository.reportIncubationOutcomes(state.incubatorId, finished)
-            // Сводка по каждой завершённой породе — и по той, где вывелся ноль: партия
-            // одна, и поздравление показывает её целиком, а салют или нет — решает сумма.
-            val summaries = finishedItems.map { (batch, rejected) ->
-                hatchSummaryOf(batch, rejected, state.catalog.incubationDays(batch.type))
+            // Сводка по каждой завершённой породе, и по нулевой тоже; салют решает сумма.
+            // Не вылупившееся — отбраковка (так пишет `finishedOnTime`).
+            // Свет — как в «Финансах»: без убранных в архив.
+            val incubator = itemsRepository.getIncubator(state.incubatorId).first()
+            val electricity = batchElectricity(
+                itemsRepository.getBatchesFor(state.incubatorId).first().filter { !it.hidden },
+                incubator?.let { mapOf(it.id to it) }.orEmpty(),
+            )
+            val summaries = finished.map { batch ->
+                hatchSummaryOf(
+                    batch,
+                    batch.eggAll - batch.eggAllEND,
+                    state.catalog.incubationDays(batch.type),
+                    electricity[batch.id],
+                )
             }
             sendEffect(FinishGroupEffect.Finished(summaries))
         }
     }
 }
 
-/** Одна порода партии и сколько её яиц дожило до вывода. */
+/** Одна порода партии и сколько её яиц убрано на овоскопированиях. */
 @Immutable
 data class FinishGroupItem(
     val batch: Batch,
-    val rejected: Int,
-) {
-    val remaining: Int get() = (batch.eggAll - rejected).coerceAtLeast(0)
-}
+    val candling: Int,
+)
 
 @Immutable
 data class FinishGroupState(
@@ -158,7 +159,11 @@ sealed interface FinishGroupIntent {
     data class Load(val incubatorId: Long, val batchIds: List<Long>) : FinishGroupIntent
 
     /** Итог по закладкам партии; закладки, которых в карте нет, остаются в инкубации. */
-    data class Finish(val outcomes: Map<Long, HatchOutcome>) : FinishGroupIntent
+    data class Finish(
+        val outcomes: Map<Long, HatchOutcome>,
+        /** Когда выключили инкубатор или вынули птенцов — один на партию. */
+        val moment: FinishMoment,
+    ) : FinishGroupIntent
 }
 
 sealed interface FinishGroupEffect {

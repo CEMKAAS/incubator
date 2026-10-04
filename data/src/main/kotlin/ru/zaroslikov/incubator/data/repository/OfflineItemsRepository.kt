@@ -58,6 +58,16 @@ class OfflineItemsRepository(private val itemDao: ItemDao) : ItemsRepository {
     override suspend fun updateBatch(batch: Batch) =
         itemDao.updateBatch(batch.toEntity())
 
+    override suspend fun updateBatchWithCandlings(
+        batch: Batch,
+        save: List<Candling>,
+        delete: List<Candling>,
+    ) = itemDao.updateBatchWithCandlings(
+        batch.toEntity(),
+        save.map { it.toEntity() },
+        delete.map { it.toEntity() },
+    )
+
     override suspend fun deleteBatch(batch: Batch) =
         itemDao.deleteBatch(batch.toEntity())
 
