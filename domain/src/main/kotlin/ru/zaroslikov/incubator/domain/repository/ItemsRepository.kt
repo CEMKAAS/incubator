@@ -120,6 +120,21 @@ interface ItemsRepository {
     suspend fun updateMeasurements(measurements: List<Measurement>)
     suspend fun deleteMeasurements(measurements: List<Measurement>)
 
+    /**
+     * Правка группы одной транзакцией: переписать, удалить и досоздать копии вместе.
+     * Реализация по умолчанию — для тестовых двойников; настоящий репозиторий обязан
+     * переопределить её транзакцией.
+     */
+    suspend fun replaceMeasurementGroup(
+        update: List<Measurement>,
+        delete: List<Measurement>,
+        insert: List<Measurement>,
+    ) {
+        if (update.isNotEmpty()) updateMeasurements(update)
+        if (delete.isNotEmpty()) deleteMeasurements(delete)
+        if (insert.isNotEmpty()) insertMeasurements(insert)
+    }
+
     // --- Овоскопирования ---
 
     /** Итоги овоскопирований закладки по возрастанию дня инкубации. */

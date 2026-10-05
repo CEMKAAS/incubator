@@ -617,7 +617,7 @@ internal fun stoppedLine(summary: HatchSummary): String {
 
 /**
  * Причина остановки — красной плашкой, как `EndReasonCard` на «Обзоре» закладки и чип
- * «Не завершено»: один красный на один исход. Текст свободный, поэтому целиком.
+ * «Прервано»: один красный на один исход. Текст свободный, поэтому целиком.
  */
 @Composable
 private fun StopReason(reason: String) {

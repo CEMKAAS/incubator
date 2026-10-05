@@ -41,7 +41,6 @@ dependencies {
     api(libs.androidx.ui)
     api(libs.androidx.ui.graphics)
     api(libs.androidx.material3)
-    api(libs.androidx.ui.text.google.fonts)
     api(libs.androidx.material.icons.core)
     implementation(libs.androidx.core.ktx)
     // SheetDraft читает LocalActivity, чтобы отличить поворот от смерти процесса.

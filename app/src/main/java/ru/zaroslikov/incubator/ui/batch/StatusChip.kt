@@ -14,7 +14,7 @@ import ru.zaroslikov.incubator.design.theme.DesignType
 import ru.zaroslikov.incubator.domain.model.BatchStatus
 
 /**
- * Статус-чип закладки: «Инкубация», «Завершено» или «Не завершено».
+ * Статус-чип закладки: «Инкубация», «Завершено» или «Прервано».
  *
  * Общий для карточки в списке инкубатора и сводки в шторке закладки. Прерванная — красная,
  * той же парой цветов, что и кнопка досрочного завершения: нейтральный «Завершено»
@@ -36,7 +36,7 @@ internal fun StatusChip(status: BatchStatus, modifier: Modifier = Modifier) {
         )
 
         BatchStatus.Stopped -> Triple(
-            "Не завершено",
+            "Прервано",
             DesignPalette.Expense,
             DesignPalette.ExpenseSurface,
         )

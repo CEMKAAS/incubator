@@ -93,6 +93,9 @@ private val GuideBody = TextStyle(
  * QR-код на устройстве, таймер проветривания и итог вывода. Они стоят после «Каждый
  * день под контролем», потому что опираются на неё: замер и проветривание там уже
  * названы, а здесь показано, как сделать их быстрее и чем всё кончается.
+ *
+ * Девятая, последняя, — не про приложение, а приглашение в соцсети: рассказ закончен на
+ * «Вывод и итоги», и просьба подписаться стоит после него, а не посреди.
  */
 internal enum class GuidePage(val title: String, val body: String) {
     Welcome(
@@ -151,6 +154,12 @@ internal enum class GuidePage(val title: String, val body: String) {
             "календарь телефона. А когда птенцы вылупятся, приложение поздравит и " +
             "подведёт итог: вывод, расходы на яйца и электричество, прибыль. Птенцов " +
             "можно перенести в «Моё хозяйство».",
+    ),
+    Social(
+        title = "Присоединяйтесь к нам",
+        body = "Подпишитесь на наши соцсети — там новости приложения, советы по " +
+            "инкубации и общение с другими птицеводами. Нажмите на карточку выше, " +
+            "чтобы открыть группу или канал.",
     ),
 }
 
@@ -316,6 +325,7 @@ private fun GuidePageContent(page: GuidePage, index: Int, pagerState: PagerState
                 GuidePage.Qr -> QrScene(active)
                 GuidePage.Timer -> TimerScene(active)
                 GuidePage.Hatch -> HatchScene(active)
+                GuidePage.Social -> SocialScene(active)
             }
         }
         Spacer(Modifier.height(28.dp))

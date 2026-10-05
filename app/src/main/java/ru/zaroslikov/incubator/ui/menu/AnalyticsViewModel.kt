@@ -101,6 +101,11 @@ class AnalyticsViewModel(
                 // нужно: вопрос «сколько устройств не назвали цену» — про список
                 // инкубаторов, а не про деньги закладок.
                 incubatorsWithoutPrice = incubators.count { it.price <= 0 },
+                // Завершённые, но не вошедшие в счёт: убранные в архив сами или лежащие в
+                // инкубаторе из архива. Нужно пустой вкладке — сказать, где прошлые выводы.
+                archivedFinished = allBatches.count {
+                    it.status != BatchStatus.Active && (it.hidden || it.incubatorId !in workingIds)
+                },
                 loading = false,
             )
         }
@@ -141,6 +146,8 @@ data class AnalyticsUiState(
     val stats: IncubatorStats = IncubatorStats(),
     /** Сводные финансы по всем инкубаторам — см. [incubatorFinance]. */
     val finance: IncubatorFinance = IncubatorFinance(),
+    /** Завершённых закладок вне счёта — в архиве или в инкубаторе из архива. */
+    val archivedFinished: Int = 0,
     /**
      * База ещё не ответила — не то же самое, что «хозяйство пустое».
      *

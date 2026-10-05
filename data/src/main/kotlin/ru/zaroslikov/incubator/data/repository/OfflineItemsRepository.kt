@@ -142,6 +142,16 @@ class OfflineItemsRepository(private val itemDao: ItemDao) : ItemsRepository {
     override suspend fun deleteMeasurements(measurements: List<Measurement>) =
         itemDao.deleteMeasurements(measurements.map { it.toEntity() })
 
+    override suspend fun replaceMeasurementGroup(
+        update: List<Measurement>,
+        delete: List<Measurement>,
+        insert: List<Measurement>,
+    ) = itemDao.replaceMeasurementGroup(
+        update.map { it.toEntity() },
+        delete.map { it.toEntity() },
+        insert.map { it.toEntity() },
+    )
+
     // --- Овоскопирования ---
 
     override fun getCandlings(batchId: Long): Flow<List<Candling>> =

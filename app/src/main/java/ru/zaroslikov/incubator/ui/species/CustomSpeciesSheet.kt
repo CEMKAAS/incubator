@@ -4,7 +4,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -51,6 +50,7 @@ import ru.zaroslikov.incubator.ui.components.ScheduleHeaderRow
 import ru.zaroslikov.incubator.ui.components.ScheduleRow
 import ru.zaroslikov.incubator.design.components.SheetDragHandle
 import ru.zaroslikov.incubator.design.components.SheetDraft
+import ru.zaroslikov.incubator.design.components.SheetDropdownField
 import ru.zaroslikov.incubator.design.components.SheetHeader
 import ru.zaroslikov.incubator.design.components.SheetPadding
 import ru.zaroslikov.incubator.design.components.SheetSaveFooter
@@ -207,9 +207,16 @@ private fun SpeciesForm(
                 if (!state.isEditing) {
                     FormSpacer(20.dp)
                     FieldLabel(text = "Взять за основу")
-                    SeedRow(
-                        names = SpeciesCatalog.BUILT_IN,
-                        onSeed = { send(CustomSpeciesIntent.SeedFrom(it)) },
+                    // Выпадающий список, а не пилюли: пять названий пилюлями занимали
+                    // две-три строки над таблицей ради выбора, который делают один раз.
+                    // Повторный выбор того же вида снова подменяет таблицу — это и есть
+                    // «вернуть режим как было» после неудачных правок.
+                    SheetDropdownField(
+                        options = SpeciesCatalog.BUILT_IN,
+                        selected = state.seededFrom,
+                        label = { it.orEmpty() },
+                        onSelect = { name -> name?.let { send(CustomSpeciesIntent.SeedFrom(it)) } },
+                        placeholder = "Не выбрано",
                     )
                     FormSpacer(6.dp)
                     Text(
@@ -271,27 +278,6 @@ private fun SpeciesForm(
                     onCandlingToggle = { send(CustomSpeciesIntent.ToggleCandling(index)) },
                 )
             }
-        }
-    }
-}
-
-/**
- * «Взять за основу» — встроенные виды пилюлями.
- *
- * [FlowRow], а не строка с прокруткой: пяти названий на узкий экран в одну строку не
- * хватает, а уехавшие за правый край «Перепела» — это тот же пропавший вариант, только
- * незаметно. Кнопка та же, что и над таблицей закладки: это действие того же рода —
- * подменить режим целиком.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SeedRow(names: List<String>, onSeed: (String) -> Unit) {
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        names.forEach { name ->
-            ScheduleActionButton(text = name, onClick = { onSeed(name) })
         }
     }
 }

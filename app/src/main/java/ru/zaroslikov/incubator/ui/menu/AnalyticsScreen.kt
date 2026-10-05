@@ -122,10 +122,14 @@ fun AnalyticsScreen(
                     // «инкубатор + яйца» и так далее. Числа считает тот же `:domain`.
                     // Реклама стоит внутри самих вкладок, сразу после первого блока, —
                     // экрану остаётся только дать каждой своего владельца объявления.
-                    AnalyticsTab.Stats -> StatsTab(uiState.stats, TabScope.All, statsAdHost)
+                    AnalyticsTab.Stats -> StatsTab(uiState.stats, TabScope.All, statsAdHost, uiState.archivedFinished)
                     AnalyticsTab.Finance -> {
-                        FinanceTab(uiState.finance, TabScope.All, financeAdHost)
-                        MissingPricesNote(uiState.incubatorsWithoutPrice)
+                        FinanceTab(uiState.finance, TabScope.All, financeAdHost, uiState.archivedFinished)
+                        // Сноска про окупаемость — только когда окупаемость есть: под заглушкой
+                        // «итогов пока нет» она говорила бы о числе, которого на экране нет.
+                        if (uiState.stats.total.finishedBatches > 0) {
+                            MissingPricesNote(uiState.incubatorsWithoutPrice)
+                        }
                     }
                 }
             }

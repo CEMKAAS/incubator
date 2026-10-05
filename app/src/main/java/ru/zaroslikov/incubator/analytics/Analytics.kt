@@ -68,11 +68,26 @@ object Analytics {
             .withLocationTracking(false)
             .build()
         AppMetrica.activate(context, config)
+        this.settings = settings
+        installedAt = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).firstInstallTime
+        }.getOrNull()
     }
+
+    /** Откуда читать и куда писать пройденные этапы конверсии; до [activate] — некуда. */
+    @Volatile
+    private var settings: AppSettings? = null
+
+    /** Момент первой установки — для «Дней с установки» у конверсий. */
+    @Volatile
+    private var installedAt: Long? = null
+
+    private val milestoneLock = Any()
 
     /** Событие без параметров. */
     fun report(event: String) {
         AppMetrica.reportEvent(event)
+        reportMilestones(event)
     }
 
     /**
@@ -100,7 +115,49 @@ object Analytics {
         val filled = params.filterValues { it != null && it != "" }
         if (filled.isEmpty()) AppMetrica.reportEvent(event)
         else AppMetrica.reportEvent(event, jsonOf(filled).toString())
+        reportMilestones(event)
     }
+
+    /**
+     * Шлёт этапы конверсии, которые засчитывает [event], — каждый один раз на установку
+     * (см. [Milestone]).
+     *
+     * Под замком: замер пишется из `viewModelScope`, завершение — из другого, и два
+     * события в одну миллисекунду не должны оба прочитать «ещё не было». Отметка пишется
+     * до отправки: потерянное событие лучше двойного — двойное цель конверсии не прощает.
+     */
+    private fun reportMilestones(event: String) {
+        val settings = settings ?: return
+        val due = synchronized(milestoneLock) {
+            val reached = settings.reachedMilestones.mapNotNull(Milestone::fromKey).toSet()
+            val due = milestonesFor(event, reached)
+            if (due.isNotEmpty()) settings.reachedMilestones = (reached + due).map { it.event }.toSet()
+            due
+        }
+        if (due.isEmpty()) return
+        val days = installedAt?.let { daysSinceInstall(it, System.currentTimeMillis()) }
+        due.forEach { milestone ->
+            if (days == null) AppMetrica.reportEvent(milestone.event)
+            else AppMetrica.reportEvent(milestone.event, jsonOf(mapOf(DAYS_SINCE_INSTALL to days)).toString())
+        }
+    }
+
+    /**
+     * Отмечает этапы, пройденные по данным в базе, — молча, без событий. Зовёт
+     * [AnalyticsProfile] при каждом пересчёте профиля: отметки только добавляются.
+     */
+    fun markMilestonesReached(reachedInDatabase: Set<Milestone>) {
+        val settings = settings ?: return
+        if (reachedInDatabase.isEmpty()) return
+        synchronized(milestoneLock) {
+            val stored = settings.reachedMilestones
+            val merged = stored + reachedInDatabase.map { it.event }
+            if (merged != stored) settings.reachedMilestones = merged
+        }
+    }
+
+    /** Параметр всех событий конверсии. */
+    private const val DAYS_SINCE_INSTALL = "Дней с установки"
 
     /**
      * Карта в JSON, вложенные карты — вложенными объектами.
@@ -221,6 +278,18 @@ object Events {
      * способ этого добиться.
      */
     const val INCUBATION_REPORT = "Итог инкубации"
+
+    // Цели конверсии — «впервые дошёл до шага» — отдельными событиями, по одному на
+    // установку, шлёт сам [Analytics.report] вслед за шагами выше; их имена — в
+    // [Milestone], а не здесь, потому что вызывать их руками нельзя.
+
+    /**
+     * Ответ на системный запрос уведомлений после инструкции — «Разрешено» да/нет.
+     * Только когда диалог действительно показали: выданное раньше разрешение сюда не
+     * попадает. Без этого разрешения напоминания не доходят, а напоминание — главный
+     * повод вернуться в приложение, так что это шаг воронки, а не настройка.
+     */
+    const val NOTIFICATIONS_PERMISSION = "Разрешение на уведомления"
 
     // --- Инкубатор и закладка: остальное ---------------------------------------------
 

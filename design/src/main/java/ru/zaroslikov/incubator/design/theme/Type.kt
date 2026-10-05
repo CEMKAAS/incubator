@@ -5,52 +5,46 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.googlefonts.Font
-import androidx.compose.ui.text.googlefonts.GoogleFont
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.unit.sp
 import ru.zaroslikov.incubator.design.R
 
-
-val provider = GoogleFont.Provider(
-    providerAuthority = "com.google.android.gms.fonts",
-    providerPackage = "com.google.android.gms",
-    certificates = R.array.com_google_android_gms_fonts_certs
-)
-
-/**
- * Шрифты макета: Fraunces — заголовки, Inter — текст, JetBrains Mono — надзаголовки и числа.
+/*
+ * Шрифты: Lora — заголовки, Inter — текст, Comfortaa — надзаголовки и числа.
  *
- * Оговорка: в макете у Fraunces выставлены вариативные оси SOFT/WONK. Downloadable Fonts
- * их не передают, поэтому начертание будет базовым SemiBold, без «вонкости» из Figma.
+ * Макет рисовался во Fraunces и JetBrains Mono; оба заменены по просьбе владельца
+ * (2026-10-04). Comfortaa — не моноширинный шрифт, хотя семейство по-прежнему
+ * называется [monoFontFamily]: цифры в столбцах больше не встают строго друг под другом.
+ * Для заголовков сперва взяли Noto Serif Display, но на телефоне он оказался слишком
+ * узким и контрастным; Lora — книжная антиква с настоящим SemiBold, держится и на 16 sp.
+ *
+ * Файлы лежат в `res/font`, а не скачиваются через Google Fonts. Скачивание шло через
+ * Google Play Services и сеть, а приложение офлайновое и ставится из RuStore, где
+ * сервисов Google часто нет: новый шрифт, не успевший попасть в кэш GMS, молча
+ * заменялся системным — так новый шрифт и «не применился» при первой замене.
+ * Начертания статические, по одному файлу на вес; Compose берёт ближайший из объявленных.
  */
 val displayFontFamily = FontFamily(
-    Font(googleFont = GoogleFont("Fraunces"), fontProvider = provider, weight = FontWeight.Normal),
-    Font(googleFont = GoogleFont("Fraunces"), fontProvider = provider, weight = FontWeight.SemiBold),
+    Font(R.font.lora_regular, FontWeight.Normal),
+    Font(R.font.lora_semibold, FontWeight.SemiBold),
 )
 
 /**
  * Курсивное начертание объявлено отдельно ради [DesignType.Note]: без него Compose
  * наклонил бы прямой Inter сам (синтез), и это выглядит заметно хуже настоящего курсива.
- * Если провайдер шрифтов курсив не отдаст, синтез всё равно сработает — пояснение
- * останется наклонным, просто не таким ровным.
  */
 val bodyFontFamily = FontFamily(
-    Font(googleFont = GoogleFont("Inter"), fontProvider = provider, weight = FontWeight.Normal),
-    Font(googleFont = GoogleFont("Inter"), fontProvider = provider, weight = FontWeight.Medium),
-    Font(googleFont = GoogleFont("Inter"), fontProvider = provider, weight = FontWeight.SemiBold),
-    Font(googleFont = GoogleFont("Inter"), fontProvider = provider, weight = FontWeight.Bold),
-    Font(
-        googleFont = GoogleFont("Inter"),
-        fontProvider = provider,
-        weight = FontWeight.Normal,
-        style = FontStyle.Italic,
-    ),
+    Font(R.font.inter_regular, FontWeight.Normal),
+    Font(R.font.inter_medium, FontWeight.Medium),
+    Font(R.font.inter_semibold, FontWeight.SemiBold),
+    Font(R.font.inter_bold, FontWeight.Bold),
+    Font(R.font.inter_italic, FontWeight.Normal, FontStyle.Italic),
 )
 
 val monoFontFamily = FontFamily(
-    Font(googleFont = GoogleFont("JetBrains Mono"), fontProvider = provider, weight = FontWeight.Normal),
-    Font(googleFont = GoogleFont("JetBrains Mono"), fontProvider = provider, weight = FontWeight.Medium),
-    Font(googleFont = GoogleFont("JetBrains Mono"), fontProvider = provider, weight = FontWeight.SemiBold),
+    Font(R.font.comfortaa_regular, FontWeight.Normal),
+    Font(R.font.comfortaa_medium, FontWeight.Medium),
+    Font(R.font.comfortaa_semibold, FontWeight.SemiBold),
 )
 
 // Default Material 3 typography values
@@ -80,7 +74,7 @@ val Typography = Typography(
  */
 object DesignType {
     /**
-     * Надзаголовок из макета: JetBrains Mono 11 / 16.5, трекинг 2.2, капслок.
+     * Надзаголовок из макета: Comfortaa 11 / 16.5, трекинг 2.2, капслок.
      *
      * Сейчас его никто не рисует — «МОЯ ПАСЕКА» с первого экрана убрана, — но стиль
      * снят с макета и остаётся на месте, чтобы надзаголовок вернулся одной строкой.
@@ -93,7 +87,7 @@ object DesignType {
         letterSpacing = 2.2.sp,
     )
 
-    /** Заголовок экрана «Инкубаторы»: Fraunces SemiBold 34 / 34. */
+    /** Заголовок экрана «Инкубаторы»: Lora SemiBold 34 / 34. */
     val ScreenTitle = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -101,7 +95,7 @@ object DesignType {
         lineHeight = 34.sp,
     )
 
-    /** Число в плитке статистики: Fraunces SemiBold 28 / 28. */
+    /** Число в плитке статистики: Lora SemiBold 28 / 28. */
     val StatValue = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -109,7 +103,7 @@ object DesignType {
         lineHeight = 28.sp,
     )
 
-    /** Заголовок карточки: Fraunces SemiBold 21 / 26.25. */
+    /** Заголовок карточки: Lora SemiBold 21 / 26.25. */
     val CardTitle = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -133,7 +127,7 @@ object DesignType {
         lineHeight = 18.sp,
     )
 
-    /** Моноширинный подзаголовок — модель инкубатора: JetBrains Mono 12 / 18. */
+    /** Моноширинный подзаголовок — модель инкубатора: Comfortaa 12 / 18. */
     val Mono = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.Normal,
@@ -141,7 +135,7 @@ object DesignType {
         lineHeight = 18.sp,
     )
 
-    /** Процент заполнения: JetBrains Mono Medium 12 / 18. */
+    /** Процент заполнения: Comfortaa Medium 12 / 18. */
     val MonoEmphasis = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.Medium,
@@ -165,7 +159,7 @@ object DesignType {
         lineHeight = 22.5.sp,
     )
 
-    /** Срок инкубации на плитке вида птицы: JetBrains Mono 10 / 15. */
+    /** Срок инкубации на плитке вида птицы: Comfortaa 10 / 15. */
     val MonoMicro = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.Normal,
@@ -173,7 +167,7 @@ object DesignType {
         lineHeight = 15.sp,
     )
 
-    /** Числовое поле — в макете моноширинное: JetBrains Mono 15 / 22.5. */
+    /** Числовое поле — в макете моноширинное: Comfortaa 15 / 22.5. */
     val MonoField = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.Normal,
@@ -189,7 +183,7 @@ object DesignType {
         lineHeight = 21.sp,
     )
 
-    /** Заголовок шторки: Fraunces SemiBold 22 / 33. */
+    /** Заголовок шторки: Lora SemiBold 22 / 33. */
     val SheetTitle = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -208,7 +202,7 @@ object DesignType {
     // --- Экран инкубатора (узел 5:547): зелёная шапка, вкладки, карточки закладок ---
 
     /**
-     * Надзаголовок из макета — модель и вместимость капсом: JetBrains Mono 12 / 18, трекинг 2.16.
+     * Надзаголовок из макета — модель и вместимость капсом: Comfortaa 12 / 18, трекинг 2.16.
      * Сейчас не используется: строка модели переехала под название инкубатора и набрана
      * `Caption`. Оставлен рядом с `Eyebrow` — вернуть надзаголовок это одна строка.
      */
@@ -220,7 +214,7 @@ object DesignType {
         letterSpacing = 2.16.sp,
     )
 
-    /** Название инкубатора в шапке: Fraunces SemiBold 30 / 37.5. */
+    /** Название инкубатора в шапке: Lora SemiBold 30 / 37.5. */
     val HeaderTitle = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -228,7 +222,7 @@ object DesignType {
         lineHeight = 37.5.sp,
     )
 
-    /** Число в строке показателей шапки: Fraunces SemiBold 22 / 22. */
+    /** Число в строке показателей шапки: Lora SemiBold 22 / 22. */
     val HeaderStatValue = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -295,7 +289,7 @@ object DesignType {
         lineHeight = 19.5.sp,
     )
 
-    /** Заголовок карточки закладки: Fraunces SemiBold 18 / 27. */
+    /** Заголовок карточки закладки: Lora SemiBold 18 / 27. */
     val BatchTitle = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -303,7 +297,7 @@ object DesignType {
         lineHeight = 27.sp,
     )
 
-    /** Правая колонка карточки — «через 8 дн.», «+21 птенцов»: JetBrains Mono Medium 13 / 19.5. */
+    /** Правая колонка карточки — «через 8 дн.», «+21 птенцов»: Comfortaa Medium 13 / 19.5. */
     val MonoAccent = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.Medium,
@@ -311,7 +305,7 @@ object DesignType {
         lineHeight = 19.5.sp,
     )
 
-    /** Число в плитке вкладки «Статистика»: Fraunces SemiBold 24 / 24. */
+    /** Число в плитке вкладки «Статистика»: Lora SemiBold 24 / 24. */
     val MetricValue = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -319,7 +313,7 @@ object DesignType {
         lineHeight = 24.sp,
     )
 
-    /** Заголовок блока внутри вкладки: Fraunces SemiBold 17 / 25.5. */
+    /** Заголовок блока внутри вкладки: Lora SemiBold 17 / 25.5. */
     val SectionTitle = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -343,7 +337,7 @@ object DesignType {
         lineHeight = 21.sp,
     )
 
-    /** Чистая прибыль крупно: Fraunces SemiBold 36 / 36. */
+    /** Чистая прибыль крупно: Lora SemiBold 36 / 36. */
     val MoneyLarge = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -351,7 +345,7 @@ object DesignType {
         lineHeight = 36.sp,
     )
 
-    /** Сумма в плитке доходов/расходов: JetBrains Mono SemiBold 16 / 24. */
+    /** Сумма в плитке доходов/расходов: Comfortaa SemiBold 16 / 24. */
     val MoneyTile = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -359,7 +353,7 @@ object DesignType {
         lineHeight = 24.sp,
     )
 
-    /** Сумма в строке операции: JetBrains Mono SemiBold 14 / 21. */
+    /** Сумма в строке операции: Comfortaa SemiBold 14 / 21. */
     val MoneyRow = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -369,7 +363,7 @@ object DesignType {
 
     // --- Шторка закладки (узел 14:4893) ---
 
-    /** Заголовок блока в шторке — «Замеры за сегодня»: Fraunces SemiBold 16 / 24. */
+    /** Заголовок блока в шторке — «Замеры за сегодня»: Lora SemiBold 16 / 24. */
     val CardHeading = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -385,7 +379,7 @@ object DesignType {
         lineHeight = 19.5.sp,
     )
 
-    /** Замер крупно — «36.6°»: Fraunces SemiBold 26 / 26. */
+    /** Замер крупно — «36.6°»: Lora SemiBold 26 / 26. */
     val MeasureValue = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -393,7 +387,7 @@ object DesignType {
         lineHeight = 26.sp,
     )
 
-    /** «цель 37.8°» и подписи шкалы: JetBrains Mono 11 / 16.5. */
+    /** «цель 37.8°» и подписи шкалы: Comfortaa 11 / 16.5. */
     val MonoSmall = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.Normal,
@@ -401,7 +395,7 @@ object DesignType {
         lineHeight = 16.5.sp,
     )
 
-    /** Вердикт об отклонении: JetBrains Mono Medium 11 / 16.5. */
+    /** Вердикт об отклонении: Comfortaa Medium 11 / 16.5. */
     val MonoSmallEmphasis = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.Medium,
@@ -409,7 +403,7 @@ object DesignType {
         lineHeight = 16.5.sp,
     )
 
-    /** Подпись плашки и шкалы, капслок: JetBrains Mono 10 / 15, трекинг 0.25. */
+    /** Подпись плашки и шкалы, капслок: Comfortaa 10 / 15, трекинг 0.25. */
     val PillLabel = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.Normal,
@@ -418,7 +412,7 @@ object DesignType {
         letterSpacing = 0.25.sp,
     )
 
-    /** Число на плашке режима: JetBrains Mono SemiBold 16 / 24. */
+    /** Число на плашке режима: Comfortaa SemiBold 16 / 24. */
     val PillValue = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.SemiBold,
@@ -426,7 +420,7 @@ object DesignType {
         lineHeight = 24.sp,
     )
 
-    /** Время в строке замера: JetBrains Mono 13 / 19.5. */
+    /** Время в строке замера: Comfortaa 13 / 19.5. */
     val MonoRow = TextStyle(
         fontFamily = monoFontFamily,
         fontWeight = FontWeight.Normal,
@@ -436,7 +430,7 @@ object DesignType {
 
     // --- Аналитика за день (узел 21:9088) ---
 
-    /** Число в плитке аналитики — «36.3°»: Fraunces SemiBold 20 / 20. */
+    /** Число в плитке аналитики — «36.3°»: Lora SemiBold 20 / 20. */
     val AnalyticsValue = TextStyle(
         fontFamily = displayFontFamily,
         fontWeight = FontWeight.SemiBold,

@@ -44,14 +44,14 @@ android {
         // versionCode поднимается с каждым выпуском вместе с versionName: по нему
         // реклама при запуске отличает первый запуск после обновления от обычного
         // (AppSettings.adsVersionCode), и неподнятый код молча сломал бы это правило.
-        versionCode = 3
-        versionName = "1.1.0r"
+        versionCode = 4
+        versionName = "2.0.0r"
 
         // Дата выпуска этой версии — её показывает экран «О приложении». Отдельным
         // полем, потому что взять её больше неоткуда: у APK есть время сборки, но оно
         // меняется на каждой пересборке и датой выпуска не является. Обновляется
         // руками вместе с versionName — на то и стоит рядом с ним.
-        buildConfigField("String", "RELEASE_DATE", "\"03.10.2026\"")
+        buildConfigField("String", "RELEASE_DATE", "\"05.10.2026\"")
 
         // Идентификатор проекта пушей RuStore. Пустой — пуши не поднимаются вовсе;
         // где он берётся и почему пустота допустима, написано у `rustorePushProjectId`
@@ -121,7 +121,6 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.core)
-    implementation(libs.androidx.ui.text.google.fonts)
 
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

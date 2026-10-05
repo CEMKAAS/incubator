@@ -15,6 +15,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,6 +63,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -83,6 +85,8 @@ import ru.zaroslikov.incubator.qr.QrLink
 import ru.zaroslikov.incubator.qr.appIconBitmap
 import ru.zaroslikov.incubator.qr.qrModules
 import ru.zaroslikov.incubator.ui.batch.TimerRing
+import ru.zaroslikov.incubator.ui.components.Social
+import ru.zaroslikov.incubator.ui.components.openSocial
 import ru.zaroslikov.incubator.ui.incubator.ProgressRing
 import ru.zaroslikov.incubator.ui.qr.QrImage
 import ru.zaroslikov.incubator.ui.start.speciesChipColor
@@ -1398,5 +1402,131 @@ private fun RowScope.HatchLink(@DrawableRes icon: Int, text: String) {
             color = DesignPalette.Accent,
             maxLines = 1,
         )
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// 9. Присоединяйтесь к нам
+// ---------------------------------------------------------------------------------
+
+/**
+ * Две карточки — группа ВКонтакте и канал в Telegram, — и, в отличие от остальных сцен,
+ * настоящие: нажатие открывает соцсеть. Иллюстрация здесь и есть действие, и рисовать
+ * поверх неё отдельные кнопки значило бы показать одно и то же дважды. Над карточками —
+ * значок приложения в дышащем кольце, тот же жест, что у первой страницы: рассказ
+ * начался с него и им же кончается.
+ */
+@Composable
+internal fun SocialScene(active: Boolean) {
+    val uriHandler = LocalUriHandler.current
+    val breath = rememberInfiniteTransition(label = "social-breath")
+    val ringScale = breath.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "social-ring",
+    )
+    val badge = appearFraction(active)
+
+    Stage {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Box(
+                modifier = Modifier.size(96.dp).rise(badge),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(96.dp)
+                        .graphicsLayer { scaleX = ringScale.value; scaleY = ringScale.value }
+                        .clip(CircleShape)
+                        .background(DesignPalette.Accent.copy(alpha = 0.10f))
+                )
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .shadow(6.dp, CircleShape)
+                        .clip(CircleShape)
+                        .background(DesignPalette.Accent),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_egg_design),
+                        contentDescription = null,
+                        tint = DesignPalette.OnAccent,
+                        modifier = Modifier.size(30.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Social.entries.forEachIndexed { index, social ->
+                if (index > 0) Spacer(Modifier.height(10.dp))
+                SocialCard(
+                    social = social,
+                    fraction = appearFraction(active, delayMillis = 200 + index * 180),
+                    onClick = { uriHandler.openSocial(social) },
+                )
+            }
+        }
+    }
+}
+
+/** Карточка соцсети: значок, название, адрес и «Подписаться» — так видно, что она нажимается. */
+@Composable
+private fun SocialCard(social: Social, fraction: Float, onClick: () -> Unit) {
+    MiniCard(
+        modifier = Modifier
+            .rise(fraction)
+            .clickable(onClickLabel = "Открыть ${social.title}", onClick = onClick),
+        padding = 12.dp,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(DesignPalette.IncomeSurface),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(id = social.icon),
+                    contentDescription = null,
+                    tint = DesignPalette.Accent,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = social.title,
+                    style = DesignType.ListItemTitle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                )
+                Text(
+                    text = social.label,
+                    style = DesignType.Micro,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "Подписаться",
+                style = DesignType.Micro,
+                color = DesignPalette.OnAccent,
+                maxLines = 1,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(DesignPalette.Accent)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            )
+        }
     }
 }

@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import ru.zaroslikov.incubator.ads.AdLoadingNotice
+import ru.zaroslikov.incubator.analytics.Analytics
+import ru.zaroslikov.incubator.analytics.Events
 import ru.zaroslikov.incubator.ads.shouldMuteAppOpenAd
 import ru.zaroslikov.incubator.rustore.AppUpdateNotice
 import ru.zaroslikov.incubator.rustore.IS_RUSTORE_BUILD
@@ -289,6 +291,7 @@ class MainActivity : ComponentActivity() {
         if (grantResults.isEmpty()) return
         val granted = grantResults[0] == PackageManager.PERMISSION_GRANTED
         Log.d(TAG, "Notification Permissions : " + if (granted) "granted" else "denied")
+        Analytics.report(Events.NOTIFICATIONS_PERMISSION, mapOf("Разрешено" to granted))
     }
 
 }

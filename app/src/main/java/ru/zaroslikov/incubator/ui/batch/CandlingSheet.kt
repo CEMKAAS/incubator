@@ -227,30 +227,27 @@ private fun CandlingContent(
 /**
  * Какое это овоскопирование по счёту, какой день и что на нём ищут.
  *
- * Своего заголовка у карточки нет — он стоит в шапке шторки, и «Овоскопирование» над
- * «Первым овоскопированием» читалось бы как заикание. Порядковый номер уехал в подпись,
- * к дню и виду птицы.
+ * Заголовок — порядковый номер («Первое овоскопирование»), под ним день и вид птицы.
  */
 @Composable
 private fun StageCard(state: CandlingState) {
     CandlingCardSurface {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_ovos2),
-                    contentDescription = null,
-                    tint = DesignPalette.DateEmphasis,
-                    modifier = Modifier.size(16.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "${stageTitle(state.stage)} · День ${state.day} · ${state.type}",
-                    style = DesignType.Caption,
-                    color = DesignPalette.DateEmphasis,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Text(
+                text = stageTitle(state.stage),
+                style = DesignType.CardHeading,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = listOf("День ${state.day}", state.type)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · "),
+                style = DesignType.Caption,
+                color = DesignPalette.DateEmphasis,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
 
             Spacer(Modifier.height(10.dp))
             Text(

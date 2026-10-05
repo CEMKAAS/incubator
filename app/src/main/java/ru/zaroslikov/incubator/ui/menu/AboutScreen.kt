@@ -56,15 +56,17 @@ object AboutDestination : NavigationDestination {
 
 /** Куда писать и куда заходить — единственные четыре адреса, которые знает приложение. */
 private const val SUPPORT_EMAIL = "s.zaroslikov@yandex.ru"
-private const val VK_GROUP_URL = "https://vk.com/myfermaapp"
+// Группа и Telegram — `internal`: их же дают приветствие стартового экрана и последняя
+// страница «Как пользоваться» (`ui/components/SocialLinks.kt`).
+internal const val VK_GROUP_URL = "https://vk.com/myfermaapp"
 private const val VK_CHANNEL_URL = "https://vk.ru/im/channels/-239980765"
-private const val TELEGRAM_URL = "https://t.me/my_ferma_app"
+internal const val TELEGRAM_URL = "https://t.me/my_ferma_app"
 
 /** Как группа пишется в тексте: без схемы, как её произносят. */
-private const val VK_GROUP_LABEL = "vk.com/myfermaapp"
+internal const val VK_GROUP_LABEL = "vk.com/myfermaapp"
 
 /** Telegram-канал, в отличие от ВК-канала, адрес имеет произносимый — его и показываем. */
-private const val TELEGRAM_LABEL = "t.me/my_ferma_app"
+internal const val TELEGRAM_LABEL = "t.me/my_ferma_app"
 
 /**
  * У канала адреса, который можно произнести, нет: «vk.ru/im/channels/-239980765» никто

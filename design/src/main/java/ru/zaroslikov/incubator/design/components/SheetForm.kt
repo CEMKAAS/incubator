@@ -595,6 +595,9 @@ fun SheetPickerField(
  *
  * Выбранный пункт помечен акцентом, а не галочкой: список короткий, и цвет читается
  * быстрее значка, которого больше нигде в меню приложения нет.
+ *
+ * [placeholder] — для списка, где выбора ещё может не быть («Взять за основу» в
+ * конструкторе вида): поле показывает его, пока `label(selected)` пуст.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -604,6 +607,7 @@ fun <T> SheetDropdownField(
     label: (T) -> String,
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
+    placeholder: String = "",
 ) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(
@@ -615,7 +619,7 @@ fun <T> SheetDropdownField(
     ) {
         SheetPickerField(
             value = label(selected),
-            placeholder = "",
+            placeholder = placeholder,
             onClick = { expanded = !expanded },
             trailing = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier

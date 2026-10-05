@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Перо — значок строки «вид · порода» на карточке закладки. В макете такой строки нет,
+     поэтому и значка нет: нарисован под ic_egg_design / ic_calendar_design — те же 14 dp,
+     та же обводка 1.05 и цвет #8A8072. Путь задан в сетке 24×24 и ужат группой, отсюда
+     обводка 1.8 (= 1.05 / 0.5833). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="14dp"
+    android:height="14dp"
+    android:viewportWidth="14"
+    android:viewportHeight="14">
+    <group
+        android:scaleX="0.58333"
+        android:scaleY="0.58333">
+        <path
+            android:pathData="M12.67 19A2 2 0 0 0 14.086 18.412L20.24 12.24A6 6 0 0 0 11.75 3.75L5.586 9.914A2 2 0 0 0 5 11.328V18A1 1 0 0 0 6 19Z"
+            android:strokeWidth="1.8"
+            android:strokeColor="#8A8072"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M16 8L2 22M17.5 15H9"
+            android:strokeWidth="1.8"
+            android:strokeColor="#8A8072"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>

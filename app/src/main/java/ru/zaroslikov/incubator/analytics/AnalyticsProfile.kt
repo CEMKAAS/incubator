@@ -72,6 +72,19 @@ class AnalyticsProfile(
         val customSpecies = itemsRepository.getCustomSpecies().first()
         val stats = incubatorStats(batches, candlings)
 
+        // Этапы конверсии, уже пройденные по базе, — молча, чтобы обновившийся или
+        // приехавший с чужой базой не прислал ложное «впервые» (см. milestonesInDatabase).
+        Analytics.markMilestonesReached(
+            milestonesInDatabase(
+                incubators = incubators.size,
+                batches = batches.size,
+                hasMeasurements = batches.any { itemsRepository.countMeasurements(it.id) > 0 },
+                candlings = candlings.size,
+                finishedBatches = batches.count { it.status != BatchStatus.Active },
+                batchesWithChicks = batches.count { it.status == BatchStatus.Hatched && it.eggAllEND > 0 },
+            )
+        )
+
         val main = mainIncubator(incubators, batches)
         val profile = UserProfile.newBuilder()
 

@@ -43,6 +43,106 @@ class IncubatorMeasurementsTest {
     }
 
     @Test
+    fun `закладка на автоперевороте не получает копию, где кроме переворота ничего нет`() {
+        val targets = listOf(
+            target(batchId = 1, valueId = 11),
+            target(batchId = 2, valueId = 22, autoTurn = true),
+        )
+        val turnOnly = template(temp = null, damp = null, over = 1)
+        assertEquals(listOf(11L), measurementCopies(targets, turnOnly, "g").map { it.idValue })
+        // С заметкой копия уже не пустая — заметка общая для прибора.
+        val withNote = turnOnly.copy(note = "перевернул")
+        assertEquals(listOf(11L, 22L), measurementCopies(targets, withNote, "g").map { it.idValue })
+    }
+
+    @Test
+    fun `правка, опустошившая копию, делает её пустой — её удаляют`() {
+        val targets = listOf(
+            target(batchId = 1, valueId = 11),
+            target(batchId = 2, valueId = 22, autoTurn = true),
+        )
+        val copies = listOf(
+            measurement(id = 4, idValue = 11, groupId = "g"),
+            measurement(id = 5, idValue = 22, groupId = "g"),
+        )
+        val updated = updatedCopies(copies, targets, template(temp = null, damp = null, over = 2))
+        assertEquals(listOf(true, false), updated.map { it.hasContent() })
+    }
+
+    @Test
+    fun `правка с температурой добавляет копию закладке, пропущенной из-за пустоты`() {
+        val targets = listOf(
+            target(batchId = 1, valueId = 11),
+            target(batchId = 2, valueId = 22, autoTurn = true),
+        )
+        // Записали один переворот: копия есть только у закладки 1.
+        val group = listOf(Measurement(id = 4, idValue = 11, time = "08:00", over = 1, groupId = "g"))
+        val added = missingCopies(group, targets, template(temp = 37.7, damp = null, over = 1))
+        assertEquals(listOf(22L), added.map { it.idValue })
+        assertEquals("g", added.single().groupId)
+        assertEquals(0L, added.single().id)
+        assertNull("автоматика снята и с добавленной копии", added.single().over)
+        assertEquals(37.7, added.single().temp)
+        // Правка, где по-прежнему один переворот, ничего не добавляет.
+        assertEquals(emptyList<Measurement>(), missingCopies(group, targets, template(temp = null, damp = null, over = 2)))
+    }
+
+    @Test
+    fun `закладка на автопроветривании не получает копию, где кроме проветривания ничего нет`() {
+        val targets = listOf(
+            target(batchId = 1, valueId = 11),
+            target(batchId = 2, valueId = 22, autoAiring = true),
+        )
+        val airingOnly = template(temp = null, damp = null, airingCount = 1, airingTime = 10)
+        assertEquals(listOf(11L), measurementCopies(targets, airingOnly, "g").map { it.idValue })
+    }
+
+    @Test
+    fun `правка проветривания опустошает копию закладки на автопроветривании`() {
+        val targets = listOf(
+            target(batchId = 1, valueId = 11),
+            target(batchId = 2, valueId = 22, autoAiring = true),
+        )
+        val copies = listOf(
+            measurement(id = 4, idValue = 11, groupId = "g"),
+            measurement(id = 5, idValue = 22, groupId = "g"),
+        )
+        val updated = updatedCopies(copies, targets, template(temp = null, damp = null, airingCount = 1, airingTime = 5))
+        assertEquals(listOf(true, false), updated.map { it.hasContent() })
+    }
+
+    @Test
+    fun `правка с влажностью добавляет копию закладке, пропущенной на автопроветривании`() {
+        val targets = listOf(
+            target(batchId = 1, valueId = 11),
+            target(batchId = 2, valueId = 22, autoAiring = true),
+        )
+        val group = listOf(
+            Measurement(id = 4, idValue = 11, time = "08:00", airingCount = 1, airingTime = 10, groupId = "g"),
+        )
+        val edit = template(temp = null, damp = 60.0, airingCount = 1, airingTime = 10)
+        val added = missingCopies(group, targets, edit).single()
+        assertEquals(22L, added.idValue)
+        assertEquals(60.0, added.damp)
+        assertNull(added.airingCount)
+        assertNull(added.airingTime)
+        // Одно проветривание без показаний — добавлять нечего.
+        val airingStill = template(temp = null, damp = null, airingCount = 1, airingTime = 15)
+        assertEquals(emptyList<Measurement>(), missingCopies(group, targets, airingStill))
+    }
+
+    @Test
+    fun `закладку, снятую галочкой при записи, правка не добавляет`() {
+        val targets = listOf(
+            target(batchId = 1, valueId = 11),
+            target(batchId = 2, valueId = 22),
+        )
+        // У прежнего показания была температура — закладка 2 осталась без копии нарочно.
+        val group = listOf(measurement(id = 4, idValue = 11, groupId = "g"))
+        assertEquals(emptyList<Measurement>(), missingCopies(group, targets, template(temp = 38.0)))
+    }
+
+    @Test
     fun `журнал показывает группу одной строкой и не показывает замеры закладок`() {
         val rows = listOf(
             measurement(id = 5, idValue = 22, groupId = "b"),

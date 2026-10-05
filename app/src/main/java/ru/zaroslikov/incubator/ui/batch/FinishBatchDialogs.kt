@@ -74,6 +74,9 @@ import ru.zaroslikov.incubator.design.theme.DesignType
  *
  * @param rejected сколько яиц убрано за все овоскопирования — из него и заложенного
  *        получается остаток, который диалоги показывают и списывают.
+ * @param hide закладка тем же сохранением уйдёт в архив («Убрать в архив» в меню
+ *        карточки). Только тогда диалоги и говорят про архив: обычное завершение
+ *        оставляет закладку в списке.
  */
 @Composable
 internal fun FinishBatchDialogs(
@@ -82,6 +85,7 @@ internal fun FinishBatchDialogs(
     onDismiss: () -> Unit,
     onFinish: (outcome: HatchOutcome, moment: FinishMoment) -> Unit,
     onFinishEarly: (reason: String, moment: FinishMoment) -> Unit,
+    hide: Boolean = false,
 ) {
     if (!state.loaded || state.finished) return
     val remaining = (state.eggAll - rejected).coerceAtLeast(0)
@@ -90,6 +94,7 @@ internal fun FinishBatchDialogs(
         FinishOnTimeDialog(
             state = state,
             candling = (rejected - state.eggRejected).coerceAtLeast(0),
+            hide = hide,
             onDismiss = onDismiss,
             onConfirm = { outcome, moment ->
                 // Имя события с прежнего экрана закладки — аналитика остаётся сравнимой.
@@ -105,6 +110,7 @@ internal fun FinishBatchDialogs(
         FinishEarlyDialog(
             state = state,
             remaining = remaining,
+            hide = hide,
             onDismiss = onDismiss,
             onConfirm = { reason, moment ->
                 Analytics.report(Events.FINISH_EARLY, finishParams(state, 0, reason))
@@ -159,6 +165,7 @@ internal fun FinishBatchHost(
         state = state.summary,
         rejected = state.rejectedTotal,
         onDismiss = onDismiss,
+        hide = hide,
         onFinish = { outcome, moment ->
             viewModel.onIntent(BatchDetailIntent.Finish(outcome, moment, hide))
         },
@@ -393,7 +400,7 @@ private val EarlyReasons = listOf(
  *
  * Кнопка подтверждения погашена, пока причина пуста. Это единственное, что здесь
  * спрашивают, и завершить «просто так» значило бы потерять её навсегда: дописать потом
- * уже некуда, закладка уходит в архив.
+ * уже некуда.
  *
  * Сумма расхода берётся из стоимости яиц ([BatchDetailUiState.eggsCost]) — той самой,
  * что ввели в форме закладки. Не указывали — так и говорим, а не рисуем «0 ₽»:
@@ -408,6 +415,7 @@ internal fun FinishEarlyDialog(
     remaining: Int,
     onDismiss: () -> Unit,
     onConfirm: (String, FinishMoment) -> Unit,
+    hide: Boolean = false,
 ) {
     var reason by rememberSaveable { mutableStateOf("") }
     var moment by rememberSaveable(stateSaver = FinishMomentSaver) { mutableStateOf(finishMomentNow()) }
@@ -426,8 +434,9 @@ internal fun FinishEarlyDialog(
                         withStyle(SpanStyle(color = DesignPalette.Expense)) {
                             append(daysLeftText(state.daysLeft))
                         }
-                        append(". Птенцы из этой закладки уже не выведутся: она уйдёт ")
-                        append("в архив с нулевым выводом, а все ")
+                        append(". Птенцы из этой закладки уже не выведутся: она ")
+                        append(if (hide) "уйдёт в архив" else "завершится")
+                        append(" с нулевым выводом, а все ")
                         append("$remaining ${eggsWord(remaining)}")
                         append(" спишутся в расход.")
                     },
@@ -507,6 +516,7 @@ internal fun FinishOnTimeDialog(
     candling: Int,
     onDismiss: () -> Unit,
     onConfirm: (outcome: HatchOutcome, moment: FinishMoment) -> Unit,
+    hide: Boolean = false,
 ) {
     val currency = LocalUnits.current.currency
     // Одна строка — вывод и цена вместе: так набранное переживает поворот одним
@@ -525,7 +535,8 @@ internal fun FinishOnTimeDialog(
         text = {
             Column(Modifier.clearFocusOnTap().verticalScroll(scrollState)) {
                 Text(
-                    text = "Закладка уйдёт в архив. Сколько птенцов вывелось?",
+                    text = if (hide) "Закладка уйдёт в архив. Сколько птенцов вывелось?"
+                    else "Сколько птенцов вывелось?",
                     style = DesignType.Body,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

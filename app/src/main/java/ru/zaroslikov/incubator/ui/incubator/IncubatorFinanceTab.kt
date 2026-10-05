@@ -83,7 +83,19 @@ internal fun FinanceTab(
      * Заводится на уровне экрана — см. [StatsTab].
      */
     adHost: BannerAdHost? = null,
+    /** Завершённые закладки, убранные в архив и потому не вошедшие в [finance]. */
+    archivedFinished: Int = 0,
 ) {
+    // Ни одной завершённой — итогов нет: баланс идущих закладок это вложенное, а не
+    // результат, и вкладка из одних «вложено» и «—» читалась как убыток.
+    if (finance.batches.none { it.status != BatchStatus.Active }) {
+        NoFinishedState(
+            NoFinishedKind.Finance,
+            active = finance.batches.size,
+            archivedFinished = archivedFinished,
+        )
+        return
+    }
 
     BalanceCard(finance, scope)
 
@@ -143,7 +155,7 @@ private fun BalanceCard(finance: IncubatorFinance, scope: TabScope) {
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = DesignPalette.Surface),
         border = BorderStroke(0.8.dp, DesignPalette.CardBorder),
-        elevation = CardDefaults.cardElevation(2.dp),
+        elevation = CardDefaults.cardElevation(CardShadow),
     ) {
         Column(Modifier.padding(20.dp)) {
             Text(
@@ -315,7 +327,11 @@ private fun ElectricityCard(finance: IncubatorFinance, scope: TabScope) {
     TabCard {
         CardHeader(
             title = "Электроэнергия",
-            subtitle = "Потребление × тариф за время, пока шли закладки",
+            // Без тарифа формула описывала бы то, чего на карточке нет: ниже только
+            // просьба вписать потребление и тариф.
+            subtitle = if (finance.electricityKnown) {
+                "Потребление × тариф за время, пока шли закладки"
+            } else null,
             hint = "Пока в инкубаторе идут несколько закладок, счёт за общие часы делится между ними поровну.",
         )
         if (!finance.electricityKnown) {
@@ -335,6 +351,7 @@ private fun ElectricityCard(finance: IncubatorFinance, scope: TabScope) {
                 label = "Потрачено",
                 hint = "${formatKwh(finance.kwh)} кВт·ч",
                 valueColor = DesignPalette.Expense,
+                elevated = false,
                 modifier = tileWeight(),
             )
             MetricCard(
@@ -343,6 +360,7 @@ private fun ElectricityCard(finance: IncubatorFinance, scope: TabScope) {
                 } else "—",
                 label = "Доля расхода",
                 hint = "от общего расхода",
+                elevated = false,
                 modifier = tileWeight(),
             )
         }
@@ -817,7 +835,7 @@ private fun BatchFinanceBreakdown(row: BatchFinance) {
             Spacer(Modifier.height(8.dp))
             MoneyLine(
                 label = "Электроэнергия",
-                value = row.electricity?.let { formatMoney(it, currency) } ?: "не указана",
+                value = row.electricity?.let { formatMoney(it, currency) } ?: "Тариф не указан",
                 hint = electricityHint(row),
                 color = if (row.hasElectricity) DesignPalette.Expense else null,
             )
@@ -841,10 +859,10 @@ private fun BatchFinanceBreakdown(row: BatchFinance) {
 
 /**
  * «12,4 кВт·ч · поделено с соседними закладками» — откуда взялась сумма света; без
- * потребления и тарифа — где их указать.
+ * потребления и тарифа подсказки нет: «Тариф не указан» уже стоит на месте суммы.
  */
-private fun electricityHint(row: BatchFinance): String {
-    val kwh = row.kwh ?: return "укажите потребление и тариф в инкубаторе или закладке"
+private fun electricityHint(row: BatchFinance): String? {
+    val kwh = row.kwh ?: return null
     return buildList {
         add("${formatKwh(kwh)} кВт·ч")
         if (row.status == BatchStatus.Active) add("к этому часу")

@@ -32,15 +32,15 @@ body{background:${t.bg};font-family:Inter,'Segoe UI',sans-serif;position:relativ
 .e2{width:300px;height:380px;right:-90px;top:640px;background:${t.blob2};transform:rotate(14deg)}
 .e3{width:160px;height:200px;right:130px;top:80px;background:${t.blob1};transform:rotate(30deg);opacity:.12}
 .text{position:absolute;left:80px;right:80px;top:${s.textTop ?? 120}px;z-index:2}
-.eyebrow{font-family:'JetBrains Mono',monospace;font-size:26px;letter-spacing:.18em;text-transform:uppercase;color:${t.eyebrow};font-weight:600;margin-bottom:26px}
-h1{font-family:Fraunces,Georgia,serif;font-weight:700;font-size:${s.titleSize ?? 84}px;line-height:1.04;color:${t.title};margin:0 0 26px;letter-spacing:-.01em}
+.eyebrow{font-family:Comfortaa,sans-serif;font-size:26px;letter-spacing:.18em;text-transform:uppercase;color:${t.eyebrow};font-weight:600;margin-bottom:26px}
+h1{font-family:Lora,Georgia,serif;font-weight:600;font-size:${s.titleSize ?? 84}px;line-height:1.04;color:${t.title};margin:0 0 26px;letter-spacing:-.01em}
 p{font-size:34px;line-height:1.35;color:${t.sub};margin:0;max-width:900px;font-weight:500}
 .phone{position:absolute;left:50%;top:${s.phoneTop ?? 560}px;width:${s.phoneW ?? 820}px;aspect-ratio:1080/2400;margin-left:${-(s.phoneW ?? 820) / 2 + offset}px;transform:rotate(${tilt}deg);transform-origin:50% 0;border-radius:74px;background:${t.frame};padding:16px;box-sizing:border-box;box-shadow:0 60px 120px ${t.shadow}, 0 10px 30px rgba(0,0,0,.18);z-index:1}
 .screen{width:100%;height:100%;border-radius:60px;overflow:hidden;background:#000;position:relative}
 .screen img{width:100%;display:block}
 .notch{position:absolute;left:50%;top:18px;width:40px;height:40px;margin-left:-20px;border-radius:50%;background:${t.frame};z-index:3;box-shadow:inset 0 0 0 3px rgba(255,255,255,.06)}
 ${s.badge ? `.badge{position:absolute;z-index:4;left:${s.badge.x}px;top:${s.badge.y}px;background:#FFFFFF;color:#2B2620;border-radius:32px;padding:22px 34px;font-size:30px;font-weight:600;box-shadow:0 20px 50px rgba(0,0,0,.25);display:flex;gap:16px;align-items:center;transform:rotate(${s.badge.tilt || -3}deg)}
-.badge b{font-family:'JetBrains Mono',monospace;color:#3F7D5C;font-size:34px}` : ''}
+.badge b{font-family:Comfortaa,sans-serif;color:#3F7D5C;font-size:34px}` : ''}
 </style></head><body>${eggs}
 <div class="text"><div class="eyebrow">${s.eyebrow}</div><h1>${s.title}</h1><p>${s.subtitle}</p></div>
 <div class="phone"><div class="screen"><div class="notch"></div><img src="file:///${shot}"></div></div>

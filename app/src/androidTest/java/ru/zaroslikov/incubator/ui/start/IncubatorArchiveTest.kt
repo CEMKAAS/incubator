@@ -24,7 +24,7 @@ import ru.zaroslikov.incubator.domain.repository.WorkRepository
  *
  * Устройство выводят из работы, и идущие в нём закладки прерываются вместе с ним:
  * `arhive = "1"`, нулевой вывод и причина [StartScreenViewModel.ARCHIVE_END_REASON], то
- * есть статус «Не завершено». Держать их идущими значило бы считать в «в работе» яйца,
+ * есть статус «Прервано». Держать их идущими значило бы считать в «в работе» яйца,
  * которых уже никто не греет.
  *
  * Границ у этого две, и обе здесь пришпилены. Уже завершённые закладки архив не трогает
@@ -93,7 +93,7 @@ class IncubatorArchiveTest {
         archive(hidden = true)
         awaitStopped(active)
 
-        // Вывод доведённой закладки на месте, и «Завершено» не превратилось в «Не завершено».
+        // Вывод доведённой закладки на месте, и «Завершено» не превратилось в «Прервано».
         val done = repository.getBatch(hatched).first()!!
         assertEquals(BatchStatus.Hatched, done.status)
         assertEquals(25, done.eggAllEND)

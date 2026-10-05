@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import ru.zaroslikov.incubator.settings.Currency
+import ru.zaroslikov.incubator.design.components.EmptyState
 import ru.zaroslikov.incubator.design.components.HintIcon
 import ru.zaroslikov.incubator.design.components.TruncatedText
 import ru.zaroslikov.incubator.design.components.formatCount
@@ -81,7 +82,13 @@ internal enum class TabScope(
     ),
 }
 
-/** Белая карточка со скруглением 22 dp — из неё собраны все блоки обеих вкладок. */
+/** Тень карточек обеих вкладок — та же, что у карточек закладок и инкубаторов. */
+internal val CardShadow = 2.dp
+
+/**
+ * Белая карточка со скруглением 22 dp — из неё собраны все блоки обеих вкладок и экраны меню.
+ * С тенью, как у карточек закладок.
+ */
 @Composable
 internal fun TabCard(
     modifier: Modifier = Modifier,
@@ -92,7 +99,7 @@ internal fun TabCard(
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = DesignPalette.Surface),
         border = BorderStroke(0.8.dp, DesignPalette.CardBorder),
-        elevation = CardDefaults.cardElevation(0.dp),
+        elevation = CardDefaults.cardElevation(CardShadow),
     ) {
         Column(Modifier.padding(20.dp), content = content)
     }
@@ -118,6 +125,58 @@ internal fun CardHeader(title: String, subtitle: String? = null, hint: String? =
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/** Какая из двух вкладок осталась без завершённых закладок — от этого зависит текст заглушки. */
+internal enum class NoFinishedKind(val emoji: String, val title: String, val about: String, val verb: String) {
+    Stats(
+        emoji = "📊",
+        title = "Статистики пока нет",
+        about = "Она считается по завершённым инкубациям: сколько яиц заложено и вылупилось, " +
+            "эффективность по видам и породам, история выводов.",
+        verb = "в статистике",
+    ),
+    Finance(
+        emoji = "💰",
+        title = "Финансовых итогов пока нет",
+        about = "Доход, расход и окупаемость считаются по завершённым инкубациям — из цены яиц " +
+            "и птенцов, стоимости инкубатора и электроэнергии.",
+        verb = "в финансах",
+    ),
+}
+
+/**
+ * Вкладка «Статистика» или «Финансы», когда считать не из чего: ни одной завершённой
+ * закладки, не убранной в архив.
+ *
+ * Картинка вместо сетки нулей и «—»: четыре плитки по нулям и пустые диаграммы читались
+ * как посчитанный плохой результат, а это отсутствие результата. Текст отвечает на два
+ * вопроса, которые возникают у пустой вкладки: «когда здесь что-то будет» — когда
+ * завершится идущая закладка ([active]), и «а где мои прошлые выводы» — в архиве, а
+ * архивные не считаются ([archivedFinished]; просьба владельца, 2026-10-05).
+ */
+@Composable
+internal fun NoFinishedState(kind: NoFinishedKind, active: Int, archivedFinished: Int) {
+    val text = buildString {
+        append(kind.about)
+        if (active > 0) {
+            append(" Сейчас в инкубации ")
+            append(plural(active, "закладка", "закладки", "закладок"))
+            append(" — итоги появятся, когда ")
+            append(if (active == 1) "она завершится." else "завершится первая из них.")
+        }
+        if (archivedFinished > 0) {
+            append(" В архиве ")
+            append(plural(archivedFinished, "завершённая закладка", "завершённые закладки", "завершённых закладок"))
+            append(", но архивные ${kind.verb} не учитываются.")
+        }
+    }
+    EmptyState(
+        emoji = kind.emoji,
+        title = kind.title,
+        text = text,
+        modifier = Modifier.padding(top = 24.dp, bottom = 16.dp),
+    )
 }
 
 @Composable
@@ -146,6 +205,9 @@ internal fun MetricCard(
     hint: String? = null,
     highlighted: Boolean = false,
     valueColor: Color? = null,
+    // Плитка внутри другой карточки (как в «Электроэнергии») стоит плоско: тень у вложенной
+    // карточки читается как лишний слой.
+    elevated: Boolean = true,
 ) {
     Card(
         modifier = modifier,
@@ -157,7 +219,7 @@ internal fun MetricCard(
             0.8.dp,
             if (highlighted) DesignPalette.Accent.copy(alpha = 0.2f) else DesignPalette.CardBorder
         ),
-        elevation = CardDefaults.cardElevation(0.dp),
+        elevation = CardDefaults.cardElevation(if (elevated) CardShadow else 0.dp),
     ) {
         Column(Modifier.padding(16.dp)) {
             TruncatedText(

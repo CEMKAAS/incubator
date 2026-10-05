@@ -55,6 +55,12 @@ data class CustomSpeciesState(
     val catalog: SpeciesCatalog = SpeciesCatalog.EMPTY,
     /** Дни вида — строки таблицы; хотя бы одна есть всегда. */
     val rows: List<SpeciesDayRow> = emptyList(),
+    /**
+     * Встроенный вид, чей режим взят за основу; `null` — не брали. Только для подписи
+     * выпадающего списка: таблица после этого правится свободно, и вид остаётся
+     * названием источника, а не обещанием, что строки с ним совпадают.
+     */
+    val seededFrom: String? = null,
     /** Идентификатор правящегося вида; ноль — создаётся новый. */
     val editedId: Long = 0,
     /**
@@ -318,7 +324,7 @@ class CustomSpeciesViewModel(
                 candling = snapshot.catalog.isCandlingDay(builtIn, value.day),
             )
         }
-        reduce { copy(rows = seeded) }
+        reduce { copy(rows = seeded, seededFrom = builtIn) }
     }
 
     /**

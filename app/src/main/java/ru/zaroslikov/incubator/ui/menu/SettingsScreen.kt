@@ -747,8 +747,7 @@ private fun DangerCard(busy: Boolean, onWipe: () -> Unit) {
 private fun PrivacyNote() {
     Text(
         text = "Все данные хранятся только на вашем устройстве — копия покидает телефон, " +
-            "только если вы отправите её сами. Реклама в приложении — от Яндекса; ей " +
-            "не передаётся ничего о вашем хозяйстве.",
+            "только если вы отправите её сами.",
         style = DesignType.Note,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,

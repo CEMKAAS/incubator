@@ -6,6 +6,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -65,6 +67,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -81,6 +84,7 @@ import ru.zaroslikov.incubator.analytics.Analytics
 import ru.zaroslikov.incubator.analytics.Events
 import ru.zaroslikov.incubator.R
 import ru.zaroslikov.incubator.ui.AppViewModelProvider
+import ru.zaroslikov.incubator.design.components.EmptyState
 import ru.zaroslikov.incubator.design.components.LoadingBox
 import ru.zaroslikov.incubator.design.components.SlidingTab
 import ru.zaroslikov.incubator.design.components.SlidingTabSwitcher
@@ -90,6 +94,7 @@ import ru.zaroslikov.incubator.ui.incubator.AddIncubatorSheet
 import ru.zaroslikov.incubator.ui.qr.IncubatorQrSheet
 import ru.zaroslikov.incubator.ui.incubator.CapacityBlock
 import ru.zaroslikov.incubator.ui.incubator.plural
+import ru.zaroslikov.incubator.ui.components.SocialLinks
 import ru.zaroslikov.incubator.ui.navigation.NavigationDestination
 import ru.zaroslikov.incubator.design.theme.DesignPalette
 import ru.zaroslikov.incubator.design.theme.DesignType
@@ -180,17 +185,28 @@ fun StartScreen(
         // Верхний оставлен как был: заголовок стоит там, где стоял.
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top),
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { showAddSheet = true },
-                containerColor = DesignPalette.Accent,
-                contentColor = DesignPalette.OnAccent,
-                icon = { Icon(Icons.Filled.Add, "Добавить") },
-                text = { Text(text = "Инкубатор") },
-                // `Scaffold` ставит кнопку в 16 dp от краёв; ещё 4 — чтобы она стояла на
-                // тех же 20 dp, что кнопки экрана инкубатора и кольцо таймера
-                // проветривания слева (`AiringTimerFab`), с которым она в одной линии.
-                modifier = Modifier.padding(end = 4.dp, bottom = 4.dp),
-            )
+            // Пока на экране приветствие — ни рабочих инкубаторов, ни архивных, — кнопки в
+            // углу нет: у приветствия своя «Добавить инкубатор» посередине, и две кнопки
+            // одного действия на пустом экране спорят, какую нажать. До ответа базы её
+            // тоже нет: иначе на пустой базе она мигала бы и пропадала.
+            AnimatedVisibility(
+                visible = !uiState.loading &&
+                    (uiState.cards.isNotEmpty() || uiState.archivedCards.isNotEmpty()),
+                enter = fadeIn(tween(TabsSlideMillis)) + scaleIn(tween(TabsSlideMillis)),
+                exit = fadeOut(tween(TabsSlideMillis)) + scaleOut(tween(TabsSlideMillis)),
+            ) {
+                ExtendedFloatingActionButton(
+                    onClick = { showAddSheet = true },
+                    containerColor = DesignPalette.Accent,
+                    contentColor = DesignPalette.OnAccent,
+                    icon = { Icon(Icons.Filled.Add, "Добавить") },
+                    text = { Text(text = "Инкубатор") },
+                    // `Scaffold` ставит кнопку в 16 dp от краёв; ещё 4 — чтобы она стояла на
+                    // тех же 20 dp, что кнопки экрана инкубатора и кольцо таймера
+                    // проветривания слева (`AiringTimerFab`), с которым она в одной линии.
+                    modifier = Modifier.padding(end = 4.dp, bottom = 4.dp),
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -270,7 +286,24 @@ fun StartScreen(
                         // с тем, что в ней лежит. Пусто, но инкубаторы есть — они все в
                         // архиве, и «Добро пожаловать!» тут было бы враньём: добавлять
                         // ничего не нужно, нужно перейти на соседнюю вкладку.
-                        item { if (hasArchive) AllArchivedNote() else EmptyState() }
+                        // Высота страницы, а не своя: заглушка стоит посередине экрана,
+                        // а не прижата к шапке. 0.85 — чтобы её центр не уходил под
+                        // «+ Инкубатор» внизу.
+                        item {
+                            if (hasArchive) {
+                                AllArchivedState(
+                                    onOpenArchive = {
+                                        scope.launch { pagerState.animateScrollToPage(1) }
+                                    },
+                                    modifier = Modifier.fillParentMaxHeight(0.85f),
+                                )
+                            } else {
+                                WelcomeState(
+                                    onAdd = { showAddSheet = true },
+                                    modifier = Modifier.fillParentMaxHeight(0.85f),
+                                )
+                            }
+                        }
                     } else {
                         itemsIndexed(
                             items = cards,
@@ -541,15 +574,16 @@ fun IncubatorCard(
             // вместимости и подписей своего меню справа нет, и обрываться раньше
             // правого края карточки им незачем.
             Column(Modifier.padding(end = 12.dp)) {
-                if (card.species.isNotEmpty()) {
-                    Spacer(Modifier.height(16.dp))
+                val hasSpecies = card.species.isNotEmpty()
+                if (hasSpecies) {
+                    Spacer(Modifier.height(10.dp))
                     SpeciesChips(card.species)
                 }
 
                 // Архивному инкубатору без вместимости сказать здесь нечего: яиц в нём
                 // нет по построению, а вместимости не указали.
                 if (!incubator.hidden || incubator.capacity > 0) {
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(if (hasSpecies) 10.dp else 16.dp))
                     CapacityBlock(
                         eggs = card.eggs,
                         capacity = incubator.capacity,
@@ -802,44 +836,47 @@ private fun SpeciesChips(species: List<String>) {
     }
 }
 
-/** Пустого состояния в макете нет — текст свой. */
+/**
+ * Ни одного инкубатора. Пустого состояния в макете нет — картинка и текст свои.
+ *
+ * На пустом экране добавить инкубатор — единственное, что можно сделать, и кнопка для
+ * этого стоит там, куда смотрят, — посередине. «+ Инкубатор» в углу в это время спрятан
+ * (см. `floatingActionButton`), чтобы два одинаковых действия не спорили.
+ */
 @Composable
-private fun EmptyState() {
-    Column(Modifier.fillMaxWidth()) {
-        Text(
-            text = "Добро пожаловать!",
-            style = DesignType.CardTitle,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(10.dp))
-        Text(
-            text = "Добавьте инкубатор, а внутри него — закладки яиц.",
-            style = DesignType.Placeholder,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
+private fun WelcomeState(onAdd: () -> Unit, modifier: Modifier = Modifier) {
+    EmptyState(
+        emoji = "🐣",
+        title = "Добро пожаловать!",
+        text = "Начните с инкубатора — укажите название и вместимость. " +
+            "Внутри него появятся закладки яиц с расписанием, замерами и сроком вывода.",
+        actionText = "Добавить инкубатор",
+        actionIcon = rememberVectorPainter(Icons.Filled.Add),
+        onAction = onAdd,
+        modifier = modifier,
+        footer = { SocialLinks(Modifier.padding(horizontal = 8.dp)) },
+    )
 }
 
 /**
  * Список пуст, но не потому, что инкубаторов нет: они все убраны в архив.
  *
- * Текст называет вкладку, а не просто сообщает факт: пустая страница с «таблеткой» над
- * ней и так спрашивает «а где всё», и ответ должен стоять там же, где вопрос.
+ * Пустая страница с «таблеткой» над ней и так спрашивает «а где всё», и ответ должен
+ * стоять там же, где вопрос: текст называет вкладку, кнопка на неё листает. «Добавить
+ * инкубатор» здесь не предлагается — для нового есть «+ Инкубатор» в углу, а заглушка
+ * отвечает на вопрос, куда делись старые.
  */
 @Composable
-private fun AllArchivedNote() {
-    Text(
-        text = "Все инкубаторы в архиве — они на соседней вкладке.",
-        style = DesignType.Placeholder,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        textAlign = TextAlign.Center,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 16.dp),
+private fun AllArchivedState(onOpenArchive: () -> Unit, modifier: Modifier = Modifier) {
+    EmptyState(
+        emoji = "📦",
+        title = "Все инкубаторы в архиве",
+        text = "Они на вкладке «Архивные» вместе со всеми закладками. Вернуть инкубатор " +
+            "в работу — «Вернуть в список» в меню его карточки.",
+        actionText = "Открыть архив",
+        actionIcon = painterResource(R.drawable.baseline_archive_24),
+        onAction = onOpenArchive,
+        modifier = modifier,
     )
 }
 

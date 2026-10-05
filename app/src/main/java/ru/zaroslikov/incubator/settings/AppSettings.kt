@@ -304,6 +304,22 @@ class AppSettings(context: Context) {
         }
 
     /**
+     * Пройденные этапы конверсии — имена событий `analytics.Milestone.event`.
+     *
+     * Свойство установки: «первый замер» — это первый замер **здесь**, и, приехав из
+     * чужой резервной копии, отметка молча съела бы конверсию нового телефона. То, что
+     * в базу пришло извне, отмечается отдельно, по самим данным (`milestonesInDatabase`).
+     *
+     * `commit`, а не `apply`: отметка и есть защита от второго события, и процесс, убитый
+     * сразу после отправки, не должен прислать его ещё раз при следующем замере.
+     */
+    var reachedMilestones: Set<String>
+        get() = devicePrefs.getStringSet(KEY_MILESTONES, null)?.toSet() ?: emptySet()
+        set(value) {
+            devicePrefs.edit(commit = true) { putStringSet(KEY_MILESTONES, value.toSet()) }
+        }
+
+    /**
      * Таймер проветривания — единственный на приложение, см. `airing/AiringTimerState`.
      *
      * Свойство установки, и это важнее обычного: таймер бежит на этом телефоне, и
@@ -427,6 +443,7 @@ class AppSettings(context: Context) {
          */
         private const val KEY_REVIEW_VERSION = "review_asked_version"
         private const val KEY_MIGRATED = "installation_keys_moved"
+        private const val KEY_MILESTONES = "conversion_milestones"
         private const val KEY_TIMER_PHASE = "airing_timer_phase"
         private const val KEY_TIMER_ID = "airing_timer_id"
         private const val KEY_TIMER_INCUBATOR = "airing_timer_incubator"

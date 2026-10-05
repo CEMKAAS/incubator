@@ -242,6 +242,22 @@ interface ItemDao {
     @Delete
     suspend fun deleteMeasurements(measurements: List<MeasurementEntity>)
 
+    /**
+     * Правка группы замеров по инкубатору целиком: переписать оставшиеся копии, удалить
+     * опустевшие, досоздать недостающие. Три списочных записи по отдельности — три
+     * транзакции, и процесс, убитый между ними, оставил бы группу переписанной наполовину.
+     */
+    @Transaction
+    suspend fun replaceMeasurementGroup(
+        update: List<MeasurementEntity>,
+        delete: List<MeasurementEntity>,
+        insert: List<MeasurementEntity>,
+    ) {
+        if (update.isNotEmpty()) updateMeasurements(update)
+        if (delete.isNotEmpty()) deleteMeasurements(delete)
+        if (insert.isNotEmpty()) insertMeasurements(insert)
+    }
+
     @Delete
     suspend fun deleteMeasurement(measurement: MeasurementEntity)
 

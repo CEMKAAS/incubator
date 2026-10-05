@@ -133,6 +133,9 @@ internal fun planLinesOf(targets: List<MeasurementTarget>): List<ChartPlanLine> 
  * минут — закладка на автомате не делала этого руками, и записать ей это как факт
  * нельзя ниоткуда. Один прибор, но две закладки с разной автоматикой получают разные
  * копии одного показания, и это правильно: температура у них общая, а переворот — нет.
+ *
+ * Копия, от которой после автоматики ничего не осталось, не пишется вовсе: внесли один
+ * переворот — закладка на автоперевороте не получает пустой строки в журнал.
  */
 internal fun measurementCopies(
     targets: List<MeasurementTarget>,
@@ -140,8 +143,18 @@ internal fun measurementCopies(
     groupId: String,
 ): List<Measurement> = targets.mapNotNull { target ->
     val plan = target.plan ?: return@mapNotNull null
-    template.stripped(target).copy(id = 0, idValue = plan.id, groupId = groupId)
+    template.stripped(target)
+        .takeIf { it.hasContent() }
+        ?.copy(id = 0, idValue = plan.id, groupId = groupId)
 }
+
+/**
+ * В замере есть что показать: хоть одно число или заметка. Время не в счёт — оно есть у любой
+ * строки. Пустую копию правка группы удаляет, а не оставляет пустой строкой в закладке.
+ */
+internal fun Measurement.hasContent(): Boolean =
+    temp != null || damp != null || over != null ||
+        airingCount != null || airingTime != null || note.isNotBlank()
 
 /**
  * Копии группы, переписанные значениями формы: время, показания и заметка — новые,
@@ -168,6 +181,33 @@ internal fun updatedCopies(
         airingTime = values.airingTime,
         note = values.note,
     )
+}
+
+/**
+ * Копии, которых группе не хватает после правки: закладке, пропущенной при записи потому,
+ * что её копия вышла пустой (внесли один переворот, а она на автоперевороте), правка с
+ * температурой или влажностью даёт что записать — и копия добавляется в ту же группу.
+ *
+ * Добавляется только туда, где пропуск объясняется пустотой: если прежнее показание группы
+ * для этой закладки было не пустым, а копии у неё нет, — её сняли галочкой нарочно, и правка
+ * этого решения не отменяет. Цели — выбранные сейчас, так что снятая галочка при правке тоже
+ * оставляет закладку без копии.
+ */
+internal fun missingCopies(
+    group: List<Measurement>,
+    targets: List<MeasurementTarget>,
+    template: Measurement,
+): List<Measurement> {
+    val before = deviceMeasurements(group).firstOrNull() ?: return emptyList()
+    val groupId = before.groupId ?: return emptyList()
+    val present = group.map { it.idValue }.toSet()
+    return targets.mapNotNull { target ->
+        val plan = target.plan ?: return@mapNotNull null
+        if (plan.id in present || before.stripped(target).hasContent()) return@mapNotNull null
+        template.stripped(target)
+            .takeIf { it.hasContent() }
+            ?.copy(id = 0, idValue = plan.id, groupId = groupId)
+    }
 }
 
 private fun Measurement.stripped(target: MeasurementTarget): Measurement = copy(

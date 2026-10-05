@@ -52,6 +52,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -93,6 +94,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.LineHeightStyle
@@ -145,6 +147,7 @@ import ru.zaroslikov.incubator.design.components.FieldRadius
 import ru.zaroslikov.incubator.design.components.SheetDropdownField
 import ru.zaroslikov.incubator.design.components.formatCount
 import ru.zaroslikov.incubator.design.components.accentButtonColors
+import ru.zaroslikov.incubator.design.components.EmptyState
 import ru.zaroslikov.incubator.design.components.LoadingBox
 import ru.zaroslikov.incubator.design.components.SlidingTab
 import ru.zaroslikov.incubator.design.components.SlidingTabSwitcher
@@ -236,6 +239,14 @@ private const val FabFadeMillis = 160
 
 /** Скругление верхних углов шторки, из-за которого по краям видно зелёный фон шапки. */
 private val SheetCorner = 24.dp
+
+/**
+ * Ширина левого столбика карточки закладки — статус, кольцо, день. Под самый широкий
+ * из статусов («Инкубация», «Завершено» — около 79 dp) с небольшим запасом на
+ * трёхзначный день своего вида, чтобы текст справа начинался с одного места на всех
+ * карточках. Крупный шрифт системы чип не раздвинет: он обрежется многоточием.
+ */
+private val RingColumnWidth = 84.dp
 
 private enum class IncubatorTab(val title: String, @param:DrawableRes val icon: Int) {
     Batches("Закладки", R.drawable.ic_egg_design_16),
@@ -827,14 +838,22 @@ fun IncubatorScreen(
                         if (uiState.loading) LoadingBox()
                         else ScrollingPage {
                             if (uiState.readOnly) ArchivedTotalsNotice()
-                            StatsTab(uiState.stats, adHost = statsAdHost)
+                            StatsTab(
+                                uiState.stats,
+                                adHost = statsAdHost,
+                                archivedFinished = uiState.hiddenBatches.size,
+                            )
                         }
 
                     IncubatorTab.Finance ->
                         if (uiState.loading) LoadingBox()
                         else ScrollingPage {
                             if (uiState.readOnly) ArchivedTotalsNotice()
-                            FinanceTab(uiState.finance, adHost = financeAdHost)
+                            FinanceTab(
+                                uiState.finance,
+                                adHost = financeAdHost,
+                                archivedFinished = uiState.hiddenBatches.size,
+                            )
                         }
                 }
             }
@@ -905,8 +924,8 @@ private fun IncubatorHeader(
                     color = DesignPalette.HeaderIcon,
                 )
             }
-            // QR-код слева от карандаша: оба — про прибор, а не про закладки, и оба остаются
-            // у архивного инкубатора. Код первым, потому что нажимают его чаще: карандаш —
+            // QR-код слева от шестерёнки: оба — про прибор, а не про закладки, и оба остаются
+            // у архивного инкубатора. Код первым, потому что нажимают его чаще: настройки —
             // раз при покупке, код — при каждой печати наклейки.
             IconButton(onClick = onShowQr) {
                 Icon(
@@ -915,9 +934,11 @@ private fun IncubatorHeader(
                     tint = DesignPalette.HeaderIcon,
                 )
             }
+            // Шестерёнка, а не карандаш: правится прибор — его вместимость, автоматика,
+            // потребление, — и карандаш читался как «переименовать».
             IconButton(onClick = onEdit) {
                 Icon(
-                    painter = painterResource(id = R.drawable.baseline_create_24),
+                    imageVector = Icons.Filled.Settings,
                     contentDescription = "Настройки инкубатора",
                     tint = DesignPalette.HeaderIcon,
                 )
@@ -1102,7 +1123,7 @@ private fun BatchesTab(
     var filterIndex by rememberSaveable { mutableIntStateOf(0) }
     // Архив — не пункт списка статусов, а отдельная кнопка рядом с ним: статус говорит,
     // чем закладка кончилась, архив — где лежит карточка. Статусный фильтр работает и
-    // внутри архива: там тоже есть что делить на «Завершённые» и «Не завершённые».
+    // внутри архива: там тоже есть что делить на «Завершённые» и «Прерванные».
     var archiveRequested by rememberSaveable { mutableStateOf(false) }
 
     // Архив может опустеть под ногами — последнюю закладку вернули в список, — и тогда
@@ -1255,7 +1276,47 @@ private fun BatchesTab(
                     }
                 }
 
-                if (shown.isEmpty()) {
+                // Совсем пустой рабочий инкубатор — картинка с объяснением: это первый
+                // экран после создания устройства, и строка «пока нет закладок» говорила
+                // только что их нет, но не что они такое. Кнопки в заглушке нет — сразу
+                // под ней стоит пунктирная «Добавить закладку». Пустой фильтр, пустой
+                // архив и инкубатор в архиве остаются строкой: там ответ — одна фраза.
+                val noBatchesAtAll = uiState.batches.isEmpty() && uiState.hiddenBatches.isEmpty()
+                if (shown.isEmpty() && noBatchesAtAll && !readOnly) {
+                    item(key = "empty") {
+                        EmptyState(
+                            emoji = "🥚",
+                            title = "Закладок пока нет",
+                            text = "Заложите яйца — приложение составит режим по дням, " +
+                                "напомнит о замерах и овоскопировании и посчитает срок вывода.",
+                            modifier = Modifier.padding(top = 12.dp, bottom = 24.dp),
+                        )
+                    }
+                } else if (shown.isEmpty() && !showArchive && uiState.batches.isEmpty() &&
+                    uiState.hiddenBatches.isNotEmpty()
+                ) {
+                    // Закладки есть, но все убраны в архив: список пуст не потому, что
+                    // ничего не закладывали, и «пока нет закладок» было бы неправдой. Кнопка
+                    // ведёт туда, где они лежат, — та же, что «Архив» над списком.
+                    item(key = "empty") {
+                        EmptyState(
+                            emoji = "📦",
+                            title = "Все закладки в архиве",
+                            // В инкубаторе из архива меню у карточек нет, и новых закладок
+                            // не будет — обещать ни то ни другое там нельзя.
+                            text = if (readOnly) {
+                                "Они не пропали — их можно посмотреть в архиве."
+                            } else {
+                                "Они не пропали — их можно посмотреть в архиве и вернуть " +
+                                    "в список из меню карточки. Новая закладка появится здесь."
+                            },
+                            actionText = "Открыть архив",
+                            actionIcon = painterResource(R.drawable.baseline_archive_24),
+                            onAction = { archiveRequested = true },
+                            modifier = Modifier.padding(top = 12.dp, bottom = 24.dp),
+                        )
+                    }
+                } else if (shown.isEmpty()) {
                     item(key = "empty") {
                         Text(
                             text = emptyBatchesText(selected, showArchive),
@@ -1614,7 +1675,7 @@ private enum class BatchFilter(val title: String) {
     All("Все"),
     Active("Инкубация"),
     Finished("Завершённые"),
-    Stopped("Не завершённые"),
+    Stopped("Прерванные"),
 }
 
 /** Что написать вместо списка, когда выбранный фильтр ничего не нашёл. */
@@ -1801,14 +1862,28 @@ private fun BatchCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                // По верху, а не по центру: левый столбик (статус, кольцо, день) выше
+                // текста справа, и по центру название съезжало вниз, отрываясь от
+                // верхнего края карточки и от троеточия, которое стоит у этого края.
+                verticalAlignment = Alignment.Top,
             ) {
                 // «День 6/21» стоит под кольцом, а не в строке с яйцами: кольцо и есть
                 // картинка этого числа — заполненная дуга говорит «шестой из
                 // двадцати одного», и подпись под ней читается как её значение, а не
                 // как ещё одна цифра в ряду. Столбик центрирован по кольцу, чтобы
                 // «День 21/21» и «День 6/21» не ёрзали относительно него.
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // Ширина постоянная, а не по содержимому: статусы и дни разной длины,
+                // и столбик по содержимому сдвигал бы текст справа — названия соседних
+                // карточек начинались бы с разных мест.
+                Column(
+                    modifier = Modifier.width(RingColumnWidth),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    // Статус — над кольцом, а не рядом с названием: так название берёт
+                    // всю ширину строки и не роняет чип на вторую, а сам статус
+                    // открывает столбик, который кольцом и днём рассказывает о том же.
+                    StatusChip(status)
+                    Spacer(Modifier.height(8.dp))
                     ProgressRing(
                         fraction = progress.fraction,
                         species = batch.type,
@@ -1826,19 +1901,13 @@ private fun BatchCard(
                 }
                 Spacer(Modifier.size(16.dp))
                 Column(Modifier.weight(1f)) {
-                    // `FlowRow`, а не `Row`: в строке чипы меряются раньше названия и
-                    // забирают ширину первыми, поэтому пара «Не завершено» + «Архив»
-                    // не оставляла от названия ничего, кроме многоточия. Здесь название
-                    // меряется во всю ширину и роняет чипы на вторую строку, когда рядом
-                    // им уже не встать: имя закладки важнее — по нему её и ищут, а статус
-                    // читается и со второй строки.
-                    FlowRow(
+                    // Чипов в строке названия больше нет: статус стоит над кольцом, а
+                    // «Архив» не пишется вовсе — в архиве карточка видна только за
+                    // кнопкой «Архив» над списком, которая и так это говорит.
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(end = if (readOnly) 0.dp else 40.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        itemVerticalAlignment = Alignment.CenterVertically,
                     ) {
                         // Название закладки человек пишет сам, и обрезанное оно
                         // договаривает подсказкой по нажатию — так же, как название
@@ -1852,15 +1921,6 @@ private fun BatchCard(
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                         )
-                        // Два чипа, а не один: «Архив» — про то, где карточка лежит, а
-                        // статус — про то, чем закладка кончилась, и одно другого не
-                        // заменяет. Под фильтром «Архив» только статус и различает
-                        // партию, доведённую до вывода, и снятую на пятый день. Своим
-                        // `Row`, чтобы переносились вдвоём: разлучать их незачем.
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            StatusChip(status)
-                            if (batch.hidden) ArchiveChip()
-                        }
                     }
 
                     // «Курицы · Ломан Браун» — вид и породы под названием. Кольцо
@@ -1876,15 +1936,33 @@ private fun BatchCard(
                             batch.breed.takeIf { it.isNotBlank() },
                         ).joinToString(" · ")
                     }
+                    // Со значком, как строки яиц и даты вывода ниже: без него она одна
+                    // из трёх подписей карточки выглядела оторванной от остальных. Не
+                    // `IconLabel`: текст здесь вписал человек, и обрезанный он
+                    // договаривает подсказкой. `weight` — на `Box`, а не на
+                    // `TruncatedText`: тот теряет его внутри своей обёртки.
                     if (subtitle.isNotEmpty()) {
                         Spacer(Modifier.height(2.dp))
-                        TruncatedText(
-                            text = subtitle,
-                            style = DesignType.Caption,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
+                        Row(
                             modifier = Modifier.padding(end = if (readOnly) 0.dp else 40.dp),
-                        )
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_feather_design),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp),
+                            )
+                            Box(Modifier.weight(1f, fill = false)) {
+                                TruncatedText(
+                                    text = subtitle,
+                                    style = DesignType.Caption,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
                     }
 
                     Spacer(Modifier.height(4.dp))
@@ -1893,37 +1971,42 @@ private fun BatchCard(
                         text = plural(batch.eggAll, "яйцо", "яйца", "яиц"),
                     )
 
-                    Spacer(Modifier.height(10.dp))
-                    // И здесь `FlowRow`, по той же причине, что и в строке названия:
-                    // «через 28 дн.» меряется первым и обрезало дату вывода — а дата и
-                    // есть содержание строки, срок же рядом с ней читается и со второй.
-                    // Пока обе помещаются, `SpaceBetween` разводит их по краям, как в
-                    // макете; когда нет — крупный шрифт системы, узкий экран — срок
-                    // просто уходит вниз целиком, вместо того чтобы съесть соседа.
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                        itemVerticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconLabel(
-                            icon = R.drawable.ic_calendar_design,
-                            text = progress.hatchLabel,
-                        )
-                        if (progress.trailing != null) {
-                            Text(
-                                text = progress.trailing,
-                                style = DesignType.MonoAccent,
-                                color = if (isFinished) {
-                                    DesignPalette.Accent
-                                } else {
-                                    DesignPalette.DateEmphasis
-                                },
-                                maxLines = 1,
-                            )
+                    // Дата вывода — следующей строкой с тем же шагом, что и яйца над
+                    // ней: это ещё одна строка того же списка, и лишний отступ отрывал
+                    // её от остальных.
+                    Spacer(Modifier.height(4.dp))
+                    IconLabel(
+                        icon = R.drawable.ic_calendar_design,
+                        text = progress.hatchLabel,
+                    )
+                    // «Через N дн.» стоит в правом нижнем углу карточки (ниже, поверх
+                    // `Box`), а здесь под него держится место высотой в его строку.
+                    // Обычно левый столбик выше текста, и резерв ничего не стоит; когда
+                    // текст выше (архив, длинный вид) — срок встаёт своей строкой под
+                    // датой, а не наезжает на неё.
+                    if (progress.trailing != null) {
+                        val lineHeight = with(LocalDensity.current) {
+                            DesignType.MonoAccent.lineHeight.toDp()
                         }
+                        Spacer(Modifier.height(lineHeight + 4.dp))
                     }
                 }
+            }
+
+            if (progress.trailing != null) {
+                Text(
+                    text = progress.trailing,
+                    style = DesignType.MonoAccent,
+                    color = if (isFinished) {
+                        DesignPalette.Accent
+                    } else {
+                        DesignPalette.DateEmphasis
+                    },
+                    maxLines = 1,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp),
+                )
             }
 
             // В архивном инкубаторе меню нет целиком, а не с погашенными пунктами:
@@ -2047,7 +2130,6 @@ private fun BatchCardMenu(
 
             BatchMenuItem(
                 text = "Редактировать",
-                // Тот же карандаш, что и у правки самого инкубатора в шапке.
                 icon = R.drawable.baseline_create_24,
             ) {
                 expanded = false
@@ -2210,32 +2292,6 @@ private fun ConfirmDeleteBatchDialog(
     )
 }
 
-/**
- * «Архив» — четвёртый чип, и единственный, который стоит вместе с другим.
- *
- * Обводкой, а не заливкой: три статуса — исход закладки, а этот про список, и рядом с
- * закрашенным он должен читаться вторым, уточняющим, а не спорить с ним за внимание.
- * Заливка тут ещё и некуда: нейтральную занял «Завершено», красную — «Не завершено».
- *
- * Слово, а не коробка из чипа фильтра: там иконка стоит одна и опознаётся как место,
- * куда идти, а тут — приписка к статусу, и картинка рядом с текстом читалась бы как
- * значок самого статуса.
- */
-@Composable
-private fun ArchiveChip() {
-    val shape = CircleShape
-    Text(
-        text = "Архив",
-        style = DesignType.ChipLabel,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
-        modifier = Modifier
-            .clip(shape)
-            .border(0.8.dp, DesignPalette.CardBorder, shape)
-            .padding(horizontal = 10.dp, vertical = 2.dp),
-    )
-}
-
 @Composable
 private fun IconLabel(
     @DrawableRes icon: Int,
@@ -2327,7 +2383,7 @@ internal fun ProgressRing(
  *
  * Четыре цвета, потому что вопросов к закладке два разных: чем она кончилась (а это
  * `BatchStatus`, три ответа) и лежит ли она уже в архиве. Прерванная берёт `Expense` —
- * тот же красный, что у чипа «Не завершено» и у кнопки досрочного завершения: красный
+ * тот же красный, что у чипа «Прервано» и у кнопки досрочного завершения: красный
  * в приложении остаётся один. Доведённая до вывода берёт `ProgressDone`, ту же зелень
  * на ступень темнее: полное кольцо цвета «идёт» ничем не отличало записанный вывод от
  * закладки на последнем дне инкубации.

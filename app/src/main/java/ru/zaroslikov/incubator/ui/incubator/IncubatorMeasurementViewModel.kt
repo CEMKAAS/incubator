@@ -323,12 +323,21 @@ internal class IncubatorMeasurementViewModel(
                 // после записи, и её копия обязана поправиться вместе с остальными.
                 // Пустой ответ — группу удалили из закладки, пока форма была открыта.
                 val groupId = form.groupId ?: return@launch reduce { copy(form = MeasurementForm()) }
-                val copies = updatedCopies(itemsRepository.getMeasurementGroup(groupId), snapshot.targets, template)
+                val group = itemsRepository.getMeasurementGroup(groupId)
+                val copies = updatedCopies(group, snapshot.targets, template)
                 if (copies.isEmpty()) return@launch reduce { copy(form = MeasurementForm()) }
-                itemsRepository.updateMeasurements(copies)
-                copies.size
+                // Копия, которую автоматика её закладки опустошила, — не замер, а пустая
+                // строка в журнале закладки: её удаляем, остальные переписываем.
+                val (kept, emptied) = copies.partition { it.hasContent() }
+                // И обратно: закладке, пропущенной при записи из-за пустой копии, правка
+                // могла дать что записать — её копия добавляется в ту же группу.
+                val added = missingCopies(group, snapshot.recipients, template)
+                // Одной транзакцией: группа ложится целиком или не ложится вовсе.
+                itemsRepository.replaceMeasurementGroup(kept, emptied, added)
+                kept.size + added.size
             } else {
                 val copies = measurementCopies(snapshot.recipients, template, UUID.randomUUID().toString())
+                if (copies.isEmpty()) return@launch reduce { copy(form = MeasurementForm()) }
                 itemsRepository.insertMeasurements(copies)
                 copies.size
             }
